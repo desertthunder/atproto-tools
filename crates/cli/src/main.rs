@@ -1,6 +1,6 @@
 use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::{fs, path::PathBuf};
 
 mod echo;
@@ -61,35 +61,44 @@ enum ConfigCommands {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum Tool {
+    Margin,
+    #[value(alias = "tngl")]
+    Tangled,
+}
+
 #[derive(Debug, Subcommand)]
 enum LexiconCommands {
-    /// Pull selected Lexicon JSON files from a GitHub repository at a pinned commit.
+    /// Pull selected Lexicon JSON files from a git repository at a pinned commit.
     Sync {
-        /// GitHub repository in owner/name form.
-        #[arg(long, default_value = "margin-at/margin")]
-        repo: String,
+        /// Tool preset to sync.
+        tool: Tool,
+
+        /// Git repository URL, host/path, or GitHub owner/name.
+        #[arg(long)]
+        repo: Option<String>,
 
         /// Commit hash to fetch from.
         #[arg(long)]
         commit: String,
 
         /// Directory inside the source repository that contains the lexicons.
-        #[arg(long, default_value = "lexicons/at/margin")]
-        source_path: String,
+        #[arg(long)]
+        source_path: Option<String>,
 
         /// Local destination directory.
-        #[arg(long, default_value = "lexicons/at/margin")]
-        dest: PathBuf,
+        #[arg(long)]
+        dest: Option<PathBuf>,
 
-        /// Lexicon filename to sync. Repeat to override the Margin defaults.
-        #[arg(long = "file", default_values = ["collection.json", "collectionItem.json", "like.json", "note.json"])]
+        /// Lexicon filename to sync. Repeat to override the tool defaults.
+        #[arg(long = "file")]
         files: Vec<String>,
     },
     /// Generate serde-compatible Rust models from local Lexicon JSON.
     Generate {
         /// Tool crate to generate models for.
-        #[arg(value_parser = ["margin"])]
-        tool: String,
+        tool: Tool,
 
         /// Local directory containing Lexicon JSON files.
         #[arg(long)]
@@ -146,9 +155,21 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Lexicons { command } => match command {
-            LexiconCommands::Sync { repo, commit, source_path, dest, files } => {
-                let report =
-                    sync_lexicons(LexiconSyncSpec { repo, commit, source_path, dest_dir: dest, files }).await?;
+            LexiconCommands::Sync { tool, repo, commit, source_path, dest, files } => {
+                let mut spec = default_lexicon_sync_spec(tool, commit);
+                if let Some(repo) = repo {
+                    spec.repo = repo;
+                }
+                if let Some(source_path) = source_path {
+                    spec.source_path = source_path;
+                }
+                if let Some(dest) = dest {
+                    spec.dest_dir = dest;
+                }
+                if !files.is_empty() {
+                    spec.files = files;
+                }
+                let report = sync_lexicons(spec).await?;
 
                 echo::pair("commit", report.commit);
                 let written = report
@@ -159,8 +180,8 @@ async fn main() -> anyhow::Result<()> {
                 echo::list("written", &written);
             }
             LexiconCommands::Generate { tool, input, output } => {
-                let input = input.unwrap_or_else(|| default_lexicon_input(&tool));
-                let output = output.unwrap_or_else(|| default_generated_output(&tool));
+                let input = input.unwrap_or_else(|| default_lexicon_input(tool));
+                let output = output.unwrap_or_else(|| default_generated_output(tool));
                 let report = generate_serde_models(input, output)?;
                 echo::pair("output", report.output.display());
                 echo::list("structs", &report.structs);
@@ -204,17 +225,45 @@ fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument
     Ok(written)
 }
 
-fn default_lexicon_input(tool: &str) -> PathBuf {
+fn default_lexicon_input(tool: Tool) -> PathBuf {
     match tool {
-        "margin" => PathBuf::from("lexicons/at/margin"),
-        _ => unreachable!("clap validates tool names"),
+        Tool::Margin => PathBuf::from("lexicons/at/margin"),
+        Tool::Tangled => PathBuf::from("lexicons/sh/tangled"),
     }
 }
 
-fn default_generated_output(tool: &str) -> PathBuf {
+fn default_generated_output(tool: Tool) -> PathBuf {
     match tool {
-        "margin" => PathBuf::from("crates/margin/src/generated.rs"),
-        _ => unreachable!("clap validates tool names"),
+        Tool::Margin => PathBuf::from("crates/margin/src/generated.rs"),
+        Tool::Tangled => PathBuf::from("crates/tngl/src/generated.rs"),
+    }
+}
+
+fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
+    match tool {
+        Tool::Margin => LexiconSyncSpec {
+            repo: "margin-at/margin".to_string(),
+            commit,
+            source_path: "lexicons/at/margin".to_string(),
+            dest_dir: PathBuf::from("lexicons/at/margin"),
+            files: vec![
+                "collection.json".to_string(),
+                "collectionItem.json".to_string(),
+                "like.json".to_string(),
+                "note.json".to_string(),
+            ],
+        },
+        Tool::Tangled => LexiconSyncSpec {
+            repo: "tangled.org/tangled.org/core".to_string(),
+            commit,
+            source_path: "lexicons".to_string(),
+            dest_dir: PathBuf::from("lexicons/sh/tangled"),
+            files: vec![
+                "string/string.json".to_string(),
+                "repo/repo.json".to_string(),
+                "issue/issue.json".to_string(),
+            ],
+        },
     }
 }
 

@@ -1,0 +1,76 @@
+{
+  "defs": {
+    "main": {
+      "key": "tid",
+      "record": {
+        "properties": {
+          "createdAt": {
+            "format": "datetime",
+            "type": "string"
+          },
+          "description": {
+            "maxGraphemes": 140,
+            "minGraphemes": 1,
+            "type": "string"
+          },
+          "knot": {
+            "description": "knot where the repo was created",
+            "type": "string"
+          },
+          "labels": {
+            "description": "List of labels that this repo subscribes to",
+            "items": {
+              "format": "at-uri",
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "name": {
+            "description": "name of the repo",
+            "type": "string"
+          },
+          "repoDid": {
+            "description": "DID of the repo itself, if assigned",
+            "format": "did",
+            "type": "string"
+          },
+          "source": {
+            "description": "source of the repo",
+            "format": "uri",
+            "type": "string"
+          },
+          "spindle": {
+            "description": "CI runner to send jobs to and receive results from",
+            "type": "string"
+          },
+          "topics": {
+            "description": "Topics related to the repo",
+            "items": {
+              "maxLength": 50,
+              "minLength": 1,
+              "type": "string"
+            },
+            "maxLength": 50,
+            "type": "array"
+          },
+          "website": {
+            "description": "Any URI related to the repo",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "knot",
+          "createdAt"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    }
+  },
+  "id": "sh.tangled.repo",
+  "lexicon": 1,
+  "needsCbor": true,
+  "needsType": true
+}

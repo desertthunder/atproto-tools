@@ -17,13 +17,8 @@ pub fn generate_serde_models(
 ) -> Result<CodegenReport, CodegenError> {
     let input_dir = input_dir.as_ref();
     let output = output.as_ref();
-    let mut files = fs::read_dir(input_dir)
-        .map_err(|source| CodegenError::ReadDir { path: input_dir.to_path_buf(), source })?
-        .map(|entry| entry.map(|entry| entry.path()))
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| CodegenError::ReadDir { path: input_dir.to_path_buf(), source })?;
-
-    files.retain(|path| path.extension().is_some_and(|ext| ext == "json"));
+    let mut files = Vec::new();
+    collect_json_files(input_dir, &mut files)?;
     files.sort();
 
     let mut structs = Vec::new();
@@ -65,6 +60,22 @@ pub enum CodegenError {
     WriteFile { path: PathBuf, source: std::io::Error },
 }
 
+fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CodegenError> {
+    for entry in fs::read_dir(dir).map_err(|source| CodegenError::ReadDir { path: dir.to_path_buf(), source })? {
+        let path = entry
+            .map_err(|source| CodegenError::ReadDir { path: dir.to_path_buf(), source })?
+            .path();
+
+        if path.is_dir() {
+            collect_json_files(&path, files)?;
+        } else if path.extension().is_some_and(|ext| ext == "json") {
+            files.push(path);
+        }
+    }
+
+    Ok(())
+}
+
 fn generate_lexicon(
     lexicon: &Value, path: &Path, output: &mut String, structs: &mut Vec<String>,
 ) -> Result<(), CodegenError> {
@@ -76,7 +87,7 @@ fn generate_lexicon(
         .get("defs")
         .and_then(Value::as_object)
         .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "defs" })?;
-    let prefix = pascal_case(id.rsplit('.').next().unwrap_or(id));
+    let prefix = safe_type_name(&pascal_case(id.rsplit('.').next().unwrap_or(id)));
 
     for (def_name, def) in defs {
         let Some(kind) = def.get("type").and_then(Value::as_str) else {
@@ -127,7 +138,7 @@ fn emit_struct(
         output.push_str("    #[serde(rename = \"$type\", default = \"");
         output.push_str(&default_fn);
         output.push_str("\")]\n");
-        output.push_str("    pub r#type: String,\n");
+        output.push_str("    pub r#type: std::string::String,\n");
     }
 
     let mut sorted = properties.into_iter().collect::<BTreeMap<_, _>>();
@@ -149,7 +160,7 @@ fn emit_struct(
     if let Some(record_type) = record_type {
         let default_fn = format!("default_{}_type", snake_case(struct_name));
         output.push_str(&format!(
-            "fn {default_fn}() -> String {{\n    \"{record_type}\".to_string()\n}}\n\n"
+            "fn {default_fn}() -> std::string::String {{\n    \"{record_type}\".to_string()\n}}\n\n"
         ));
     }
     structs.push(struct_name.to_string());
@@ -159,7 +170,7 @@ fn emit_struct(
 
 fn rust_type(schema: &Value, lexicon_prefix: &str) -> String {
     match schema.get("type").and_then(Value::as_str) {
-        Some("string") => "String".to_string(),
+        Some("string") => "std::string::String".to_string(),
         Some("integer") => "i64".to_string(),
         Some("boolean") => "bool".to_string(),
         Some("array") => {
@@ -182,11 +193,18 @@ fn rust_type(schema: &Value, lexicon_prefix: &str) -> String {
 fn local_ref_type(reference: &str, lexicon_prefix: &str) -> Option<String> {
     reference.strip_prefix('#').map(|name| {
         if name == "main" {
-            lexicon_prefix.to_string()
+            safe_type_name(lexicon_prefix)
         } else {
-            format!("{lexicon_prefix}{}", pascal_case(name))
+            safe_type_name(&format!("{lexicon_prefix}{}", pascal_case(name)))
         }
     })
+}
+
+fn safe_type_name(name: &str) -> String {
+    match name {
+        "String" => "StringRecord".to_string(),
+        _ => name.to_string(),
+    }
 }
 
 fn rust_field_name(name: &str) -> String {

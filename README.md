@@ -20,8 +20,10 @@ key-value summary, with a JSON mode available for the full serde-serialized resp
 path unless `--config` is passed, and it creates the config file and parent directory when setting
 fields.
 
-`lexicons sync` pulls selected Lexicon JSON files from a GitHub repository at an explicit
-commit hash.
+`lexicons sync <tool>` pulls selected Lexicon JSON files from a git repository at an explicit
+commit hash. The named tool selects the default source repository, source paths, local destination,
+and file set; `--repo`, `--source-path`, `--dest`, and repeated `--file` flags can override those
+defaults.
 
 `lexicons generate <tool>` reads local Lexicon JSON and writes serde-compatible Rust structs
 for a specific tool crate.
@@ -39,7 +41,7 @@ crates
   ├── cli       # Binary entrypoint
   ├── core      # Shared code (Client & Config Management)
   ├── margin
-  ├── tangled
+  ├── tngl
   ├── semble
   └── leaflet
 ```
@@ -55,4 +57,7 @@ a markdown file of all highlights and notes (for a specific page).
 
 ### Tangled
 
-Just the `sh.tangled.string` lexicon
+Generated models for the `sh.tangled.string`, `sh.tangled.repo`, and `sh.tangled.issue` lexicons to
+produce markdown files for strings (TODO).
+
+For repos and issues, we want to generate task lists (TODO).
