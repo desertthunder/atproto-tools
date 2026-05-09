@@ -6,6 +6,7 @@ edition = "2024"
 [dependencies]
 anyhow.workspace = true
 atp-tools-core = { path = "../core" }
+atp-tools-margin = { path = "../margin" }
 clap.workspace = true
 owo-colors.workspace = true
 serde_json.workspace = true

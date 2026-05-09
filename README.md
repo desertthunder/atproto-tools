@@ -26,6 +26,10 @@ commit hash.
 `lexicons generate <tool>` reads local Lexicon JSON and writes serde-compatible Rust structs
 for a specific tool crate.
 
+`margin export` fetches `at.margin.note` records from the actor's resolved PDS, groups them by
+`target.source`, and writes Obsidian/GFM-compatible Markdown documents with TOML frontmatter.
+Pass `--source` to export a single source; otherwise, it writes one slugified file per source.
+
 ### Project Structure
 
 Simple CLI + shared Core crate structure, with separate crates for each app.

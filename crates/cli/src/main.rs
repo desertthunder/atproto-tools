@@ -1,6 +1,7 @@
 use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
+use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::{fs, path::PathBuf};
 
 mod echo;
 
@@ -39,6 +40,11 @@ enum Commands {
     Lexicons {
         #[command(subcommand)]
         command: LexiconCommands,
+    },
+    /// Work with at.margin records.
+    Margin {
+        #[command(subcommand)]
+        command: MarginCommands,
     },
 }
 
@@ -95,6 +101,24 @@ enum LexiconCommands {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum MarginCommands {
+    /// Export notes as Obsidian/GFM-compatible Markdown documents.
+    Export {
+        /// Source URL to export. When omitted, exports one document per source.
+        #[arg(long)]
+        source: Option<String>,
+
+        /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
+        #[arg(long, value_name = "HANDLE_OR_DID")]
+        actor: Option<String>,
+
+        /// Output directory for generated Markdown files.
+        #[arg(long, default_value = ".")]
+        output_dir: PathBuf,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -142,9 +166,42 @@ async fn main() -> anyhow::Result<()> {
                 echo::list("structs", &report.structs);
             }
         },
+        Commands::Margin { command } => match command {
+            MarginCommands::Export { source, actor, output_dir } => {
+                let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
+                let client = AtprotoClient::new(config.services)?;
+
+                let documents = if let Some(source) = source {
+                    if let Some(document) = export_source_notes(&client, &actor, &source).await? {
+                        vec![document]
+                    } else {
+                        Vec::new()
+                    }
+                } else {
+                    export_notes(&client, &actor).await?
+                };
+
+                fs::create_dir_all(&output_dir)?;
+                let written = write_margin_documents(&output_dir, &documents)?;
+                echo::pair("documents", written.len());
+                echo::list("written", &written);
+            }
+        },
     }
 
     Ok(())
+}
+
+fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument]) -> anyhow::Result<Vec<String>> {
+    let mut written = Vec::with_capacity(documents.len());
+
+    for document in documents {
+        let path = output_dir.join(document.filename());
+        fs::write(&path, document.to_markdown()?)?;
+        written.push(path.display().to_string());
+    }
+
+    Ok(written)
 }
 
 fn default_lexicon_input(tool: &str) -> PathBuf {

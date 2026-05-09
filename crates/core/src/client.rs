@@ -1,6 +1,7 @@
 use super::{
     actor::{ActorProfileDetailed, ActorRepoInfo, DidDocument, RepoDescription},
     config::ServiceConfig,
+    records::{ListRecordsResponse, RepoRecord},
 };
 use reqwest::Url;
 use serde::de::DeserializeOwned;
@@ -33,10 +34,69 @@ impl AtprotoClient {
     }
 
     pub async fn describe_repo(&self, repo: &str) -> Result<RepoDescription, ClientError> {
-        let did_doc = self.resolve_did_document(repo).await?;
+        let did = self.resolve_actor_did(repo).await?;
+        let did_doc = self.resolve_did_document(&did).await?;
         let pds_base = pds_endpoint(&did_doc)?;
         let url = self.xrpc_url(&pds_base, "com.atproto.repo.describeRepo")?;
-        self.get_json(url, &[("repo", repo)]).await
+        self.get_json(url, &[("repo", &did)]).await
+    }
+
+    pub async fn list_records<T>(&self, actor: &str, collection: &str) -> Result<Vec<RepoRecord<T>>, ClientError>
+    where
+        T: DeserializeOwned,
+    {
+        let did = self.resolve_actor_did(actor).await?;
+        let did_doc = self.resolve_did_document(&did).await?;
+        let pds_base = pds_endpoint(&did_doc)?;
+        let mut cursor = None;
+        let mut records = Vec::new();
+
+        loop {
+            let page = self
+                .list_records_page::<T>(&pds_base, &did, collection, cursor.as_deref(), 100)
+                .await?;
+            records.extend(page.records);
+
+            let Some(next_cursor) = page.cursor else {
+                break;
+            };
+
+            if next_cursor.is_empty() {
+                break;
+            }
+
+            cursor = Some(next_cursor);
+        }
+
+        Ok(records)
+    }
+
+    pub async fn list_records_page<T>(
+        &self, pds_base: &Url, repo: &str, collection: &str, cursor: Option<&str>, limit: u16,
+    ) -> Result<ListRecordsResponse<T>, ClientError>
+    where
+        T: DeserializeOwned,
+    {
+        let url = self.xrpc_url(pds_base, "com.atproto.repo.listRecords")?;
+        let mut query = vec![
+            ("repo", repo.to_string()),
+            ("collection", collection.to_string()),
+            ("limit", limit.to_string()),
+        ];
+
+        if let Some(cursor) = cursor {
+            query.push(("cursor", cursor.to_string()));
+        }
+
+        self.get_json_owned(url, &query).await
+    }
+
+    pub async fn resolve_actor_did(&self, actor: &str) -> Result<String, ClientError> {
+        if actor.starts_with("did:") {
+            return Ok(actor.to_string());
+        }
+
+        self.get_profile(actor).await.map(|profile| profile.did)
     }
 
     pub async fn resolve_did_document(&self, did: &str) -> Result<DidDocument, ClientError> {
@@ -73,6 +133,15 @@ impl AtprotoClient {
     }
 
     async fn get_json<T>(&self, url: Url, query: &[(&str, &str)]) -> Result<T, ClientError>
+    where
+        T: DeserializeOwned,
+    {
+        let response = self.http.get(url).query(query).send().await?.error_for_status()?;
+
+        response.json::<T>().await.map_err(ClientError::from)
+    }
+
+    async fn get_json_owned<T>(&self, url: Url, query: &[(&str, String)]) -> Result<T, ClientError>
     where
         T: DeserializeOwned,
     {
