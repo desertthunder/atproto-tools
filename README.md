@@ -3,12 +3,28 @@
 A set of tools for working with ATmosphere/AT Protocol powered apps, all around a unified,
 clap + owo-colors, posix-compliant CLI.
 
-## Concept
+## Config
 
 In a `config.toml`, set your handle or DID. If you set your handle, the tool will resolve it to a DID and use that for all operations. See `config.example.toml` for the full shape.
 
 By default the CLI reads `~/.config/atproto-tools/config.toml`. You can pass another path with
 `--config`.
+
+## Usage
+
+`info` fetches profile metadata from the public Bluesky API, resolves the actor's DID document,
+and uses the advertised PDS to describe the actor's repository. By default it prints a compact
+key-value summary, with a JSON mode available for the full serde-serialized response.
+
+`config` reads and updates the TOML configuration used by the CLI. It uses the implicit config
+path unless `--config` is passed, and it creates the config file and parent directory when setting
+fields.
+
+`lexicons sync` pulls selected Lexicon JSON files from a GitHub repository at an explicit
+commit hash.
+
+`lexicons generate <tool>` reads local Lexicon JSON and writes serde-compatible Rust structs
+for a specific tool crate.
 
 ### Project Structure
 

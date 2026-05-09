@@ -1,4 +1,4 @@
-use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient};
+use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
@@ -18,6 +18,7 @@ struct Cli {
 #[derive(Debug, Subcommand)]
 enum Commands {
     /// Fetch profile metadata and repository information for an actor.
+    #[command(alias = "i")]
     Info {
         /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
         #[arg(long, value_name = "HANDLE_OR_DID")]
@@ -28,9 +29,16 @@ enum Commands {
         json: bool,
     },
     /// Read or update CLI configuration.
+    #[command(alias = "conf")]
     Config {
         #[command(subcommand)]
         command: ConfigCommands,
+    },
+    /// Sync Lexicon JSON and generate Rust models.
+    #[command(alias = "lex")]
+    Lexicons {
+        #[command(subcommand)]
+        command: LexiconCommands,
     },
 }
 
@@ -44,6 +52,46 @@ enum ConfigCommands {
 
         /// New field value.
         value: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum LexiconCommands {
+    /// Pull selected Lexicon JSON files from a GitHub repository at a pinned commit.
+    Sync {
+        /// GitHub repository in owner/name form.
+        #[arg(long, default_value = "margin-at/margin")]
+        repo: String,
+
+        /// Commit hash to fetch from.
+        #[arg(long)]
+        commit: String,
+
+        /// Directory inside the source repository that contains the lexicons.
+        #[arg(long, default_value = "lexicons/at/margin")]
+        source_path: String,
+
+        /// Local destination directory.
+        #[arg(long, default_value = "lexicons/at/margin")]
+        dest: PathBuf,
+
+        /// Lexicon filename to sync. Repeat to override the Margin defaults.
+        #[arg(long = "file", default_values = ["collection.json", "collectionItem.json", "like.json", "note.json"])]
+        files: Vec<String>,
+    },
+    /// Generate serde-compatible Rust models from local Lexicon JSON.
+    Generate {
+        /// Tool crate to generate models for.
+        #[arg(value_parser = ["margin"])]
+        tool: String,
+
+        /// Local directory containing Lexicon JSON files.
+        #[arg(long)]
+        input: Option<PathBuf>,
+
+        /// Generated Rust output file.
+        #[arg(long)]
+        output: Option<PathBuf>,
     },
 }
 
@@ -73,9 +121,44 @@ async fn main() -> anyhow::Result<()> {
                 echo::pair(&field, config.get_field(&field)?);
             }
         },
+        Commands::Lexicons { command } => match command {
+            LexiconCommands::Sync { repo, commit, source_path, dest, files } => {
+                let report =
+                    sync_lexicons(LexiconSyncSpec { repo, commit, source_path, dest_dir: dest, files }).await?;
+
+                echo::pair("commit", report.commit);
+                let written = report
+                    .written
+                    .iter()
+                    .map(|path| path.display().to_string())
+                    .collect::<Vec<_>>();
+                echo::list("written", &written);
+            }
+            LexiconCommands::Generate { tool, input, output } => {
+                let input = input.unwrap_or_else(|| default_lexicon_input(&tool));
+                let output = output.unwrap_or_else(|| default_generated_output(&tool));
+                let report = generate_serde_models(input, output)?;
+                echo::pair("output", report.output.display());
+                echo::list("structs", &report.structs);
+            }
+        },
     }
 
     Ok(())
+}
+
+fn default_lexicon_input(tool: &str) -> PathBuf {
+    match tool {
+        "margin" => PathBuf::from("lexicons/at/margin"),
+        _ => unreachable!("clap validates tool names"),
+    }
+}
+
+fn default_generated_output(tool: &str) -> PathBuf {
+    match tool {
+        "margin" => PathBuf::from("crates/margin/src/generated.rs"),
+        _ => unreachable!("clap validates tool names"),
+    }
 }
 
 fn print_info(info: &ActorRepoInfo) {
