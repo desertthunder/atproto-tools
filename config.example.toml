@@ -1,0 +1,6 @@
+[identity]
+identifier = "did:plc:xg2vq45muivyy3xwatcehspu"
+
+[services]
+public-api-base = "https://public.api.bsky.app"
+plc-directory-base = "https://plc.directory"
