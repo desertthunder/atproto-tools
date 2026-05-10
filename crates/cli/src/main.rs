@@ -1,3 +1,4 @@
+use atp_tools_bsky::{FollowerLastPost, fetch_followers_report};
 use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -45,6 +46,11 @@ enum Commands {
     Margin {
         #[command(subcommand)]
         command: MarginCommands,
+    },
+    /// Work with Bluesky app data.
+    Bsky {
+        #[command(subcommand)]
+        command: BskyCommands,
     },
 }
 
@@ -129,6 +135,25 @@ enum MarginCommands {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum BskyCommands {
+    /// Fetch followers and their latest posts.
+    #[command(alias = "follows")]
+    Followers {
+        /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
+        #[arg(long, value_name = "HANDLE_OR_DID")]
+        actor: Option<String>,
+
+        /// Ignore any matching cache file and fetch fresh data.
+        #[arg(long)]
+        refresh: bool,
+
+        /// Print the complete cached report as formatted JSON.
+        #[arg(long)]
+        json: bool,
+    },
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -209,9 +234,40 @@ async fn main() -> anyhow::Result<()> {
                 echo::list("written", &written);
             }
         },
+        Commands::Bsky { command } => match command {
+            BskyCommands::Followers { actor, refresh, json } => {
+                let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
+                let client = AtprotoClient::new(config.services)?;
+                let report = fetch_followers_report(&client, &actor, refresh).await?;
+
+                if json {
+                    println!("{}", serde_json::to_string_pretty(&report)?);
+                } else {
+                    echo::pair("actor", &report.actor);
+                    echo::pair("did", &report.actor_did);
+                    echo::pair("followers", report.followers.len());
+                    echo::pair("cache", report.cache_path.display());
+                    print_followers(&report.followers);
+                }
+            }
+        },
     }
 
     Ok(())
+}
+
+fn print_followers(followers: &[FollowerLastPost]) {
+    println!("handle\tdid\tprofile\tlastPostAt\tlastPost");
+    for follower in followers {
+        println!(
+            "{}\t{}\t{}\t{}\t{}",
+            follower.handle,
+            follower.did,
+            follower.profile_url,
+            follower.last_post_at.as_deref().unwrap_or(""),
+            follower.last_post_url.as_deref().unwrap_or("")
+        );
+    }
 }
 
 fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument]) -> anyhow::Result<Vec<String>> {

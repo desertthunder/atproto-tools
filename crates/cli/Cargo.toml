@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 anyhow.workspace = true
+atp-tools-bsky = { path = "../bsky" }
 atp-tools-core = { path = "../core" }
 atp-tools-margin = { path = "../margin" }
 clap.workspace = true

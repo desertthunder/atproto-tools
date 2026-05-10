@@ -33,6 +33,14 @@ impl AtprotoClient {
         self.get_json(url, &[("actor", actor)]).await
     }
 
+    pub async fn public_xrpc_query<T>(&self, method: &str, query: &[(&str, String)]) -> Result<T, ClientError>
+    where
+        T: DeserializeOwned,
+    {
+        let url = self.xrpc_url(&self.public_api_base, method)?;
+        self.get_json_owned(url, query).await
+    }
+
     pub async fn describe_repo(&self, repo: &str) -> Result<RepoDescription, ClientError> {
         let did = self.resolve_actor_did(repo).await?;
         let did_doc = self.resolve_did_document(&did).await?;
