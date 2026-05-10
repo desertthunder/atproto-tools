@@ -1,4 +1,7 @@
-use atp_tools_bsky::{FollowLastPost, FollowsProgress, fetch_follows_report_with_progress};
+use atp_tools_bsky::{
+    FollowLastPost, FollowsOptions, FollowsProgress, FollowsSort, FollowsSortDirection, FollowsSortField,
+    fetch_follows_report_with_progress,
+};
 use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -75,6 +78,33 @@ enum Tool {
     Tangled,
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum FollowsSortFieldArg {
+    Handle,
+    Did,
+    #[value(alias = "profileUrl")]
+    ProfileUrl,
+    #[value(alias = "lastPostAt")]
+    LastPostAt,
+    #[value(alias = "lastPostRkey")]
+    LastPostRkey,
+    #[value(alias = "lastPostUrl")]
+    LastPostUrl,
+}
+
+impl From<FollowsSortFieldArg> for FollowsSortField {
+    fn from(field: FollowsSortFieldArg) -> Self {
+        match field {
+            FollowsSortFieldArg::Handle => Self::Handle,
+            FollowsSortFieldArg::Did => Self::Did,
+            FollowsSortFieldArg::ProfileUrl => Self::ProfileUrl,
+            FollowsSortFieldArg::LastPostAt => Self::LastPostAt,
+            FollowsSortFieldArg::LastPostRkey => Self::LastPostRkey,
+            FollowsSortFieldArg::LastPostUrl => Self::LastPostUrl,
+        }
+    }
+}
+
 #[derive(Debug, Subcommand)]
 enum LexiconCommands {
     /// Pull selected Lexicon JSON files from a git repository at a pinned commit.
@@ -144,8 +174,28 @@ enum BskyCommands {
         actor: Option<String>,
 
         /// Only inspect the first N follows.
-        #[arg(long)]
+        #[arg(long, value_name = "N")]
         limit: Option<usize>,
+
+        /// Sort rows by field. Defaults to last-post-at.
+        #[arg(long, value_enum, value_name = "FIELD", conflicts_with_all = ["sort_ascending", "sort_descending"])]
+        sort: Option<FollowsSortFieldArg>,
+
+        /// Sort in ascending order. This is the default direction.
+        #[arg(long, conflicts_with_all = ["desc", "sort_ascending", "sort_descending"])]
+        asc: bool,
+
+        /// Sort in descending order.
+        #[arg(long, conflicts_with_all = ["asc", "sort_ascending", "sort_descending"])]
+        desc: bool,
+
+        /// Sort rows by field in ascending order.
+        #[arg(long = "sa", value_enum, value_name = "FIELD", conflicts_with_all = ["sort", "asc", "desc", "sort_descending"])]
+        sort_ascending: Option<FollowsSortFieldArg>,
+
+        /// Sort rows by field in descending order.
+        #[arg(long = "sd", value_enum, value_name = "FIELD", conflicts_with_all = ["sort", "asc", "desc", "sort_ascending"])]
+        sort_descending: Option<FollowsSortFieldArg>,
 
         /// Ignore any matching cache file and fetch fresh data.
         #[arg(long)]
@@ -238,11 +288,13 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Bsky { command } => match command {
-            BskyCommands::Follows { actor, limit, refresh, json } => {
+            BskyCommands::Follows { actor, limit, sort, asc, desc, sort_ascending, sort_descending, refresh, json } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
                 let client = AtprotoClient::new(config.services)?;
+                let options = follows_options(limit, sort, asc, desc, sort_ascending, sort_descending);
                 let report =
-                    fetch_follows_report_with_progress(&client, &actor, refresh, limit, print_follows_progress).await?;
+                    fetch_follows_report_with_progress(&client, &actor, refresh, options, print_follows_progress)
+                        .await?;
                 echo::clear_status();
 
                 if json {
@@ -259,6 +311,24 @@ async fn main() -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn follows_options(
+    limit: Option<usize>, sort: Option<FollowsSortFieldArg>, asc: bool, desc: bool,
+    sort_ascending: Option<FollowsSortFieldArg>, sort_descending: Option<FollowsSortFieldArg>,
+) -> FollowsOptions {
+    let (field, direction) = if let Some(field) = sort_ascending {
+        (field, FollowsSortDirection::Asc)
+    } else if let Some(field) = sort_descending {
+        (field, FollowsSortDirection::Desc)
+    } else {
+        (
+            sort.unwrap_or(FollowsSortFieldArg::LastPostAt),
+            if desc && !asc { FollowsSortDirection::Desc } else { FollowsSortDirection::Asc },
+        )
+    };
+
+    FollowsOptions { limit, sort: FollowsSort { field: field.into(), direction } }
 }
 
 fn print_follows(follows: &[FollowLastPost]) {

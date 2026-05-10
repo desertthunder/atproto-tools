@@ -10,27 +10,54 @@ In a `config.toml`, set your handle or DID. If you set your handle, the tool wil
 By default the CLI reads `~/.config/atproto-tools/config.toml`. You can pass another path with
 `--config`.
 
-## Usage
+## Commands
 
-`info` fetches profile metadata from the public Bluesky API, resolves the actor's DID document,
-and uses the advertised PDS to describe the actor's repository. By default it prints a compact
-key-value summary, with a JSON mode available for the full serde-serialized response.
+`atp [--config PATH] COMMAND [ARGS]`
 
-`config` reads and updates the TOML configuration used by the CLI. It uses the implicit config
-path unless `--config` is passed, and it creates the config file and parent directory when setting
-fields.
+Run AT Protocol inspection, lexicon, and app-specific commands.
 
-`lexicons sync <tool>` pulls selected Lexicon JSON files from a git repository at an explicit
-commit hash. The named tool selects the default source repository, source paths, local destination,
-and file set; `--repo`, `--source-path`, `--dest`, and repeated `--file` flags can override those
-defaults.
+- `--config PATH` — Read and write configuration at `PATH`.
 
-`lexicons generate <tool>` reads local Lexicon JSON and writes serde-compatible Rust structs
-for a specific tool crate.
+`atp info [--actor HANDLE_OR_DID] [--json]`
 
-`margin export` fetches `at.margin.note` records from the actor's resolved PDS, groups them by
-`target.source`, and writes Obsidian/GFM-compatible Markdown documents with TOML frontmatter.
-Pass `--source` to export a single source; otherwise, it writes one slugified file per source.
+Fetch profile metadata from the public Bluesky API, resolve the actor's DID document, and describe their repository.
+
+- `--actor HANDLE_OR_DID` — Inspect this actor instead of `identity.identifier` from config.
+- `--json` — Print the complete response as formatted JSON.
+
+`atp config set FIELD VALUE`
+
+Set a supported config field. Creates the config file and parent directory if needed.
+
+`atp lexicons sync TOOL --commit COMMIT [--repo REPO] [--source-path PATH] [--dest DIR] [--file FILE]...`
+
+Pull selected Lexicon JSON files from a git repository at an explicit commit hash. `TOOL` selects the default source repo, source path, local destination, and file set.
+
+- `--commit COMMIT` — Fetch lexicons from this commit.
+- `--repo REPO` — Override the source repository.
+- `--source-path PATH` — Override the directory inside the source repository containing lexicons.
+- `--dest DIR` — Override the local destination directory.
+- `--file FILE` — Sync this lexicon file. Repeat to replace tool defaults.
+
+`atp lexicons generate TOOL [--input DIR] [--output FILE]`
+
+Read local Lexicon JSON and write serde-compatible Rust structs for a specific tool crate.
+
+`atp margin export [--actor HANDLE_OR_DID] [--source URL] [--output-dir DIR]`
+
+Fetch `at.margin.note` records from the actor's resolved PDS, group them by `target.source`, and write Obsidian/GFM-compatible Markdown documents with TOML frontmatter. Without `--source`, writes one slugified file per source.
+
+`atp bsky follows [--actor HANDLE_OR_DID] [--limit N] [--sort FIELD] [--asc | --desc] [--sa FIELD | --sd FIELD] [--refresh] [--json]`
+
+Fetch followed accounts and each account's latest original post. Results include handle, DID, profile URL, latest post date and URL. Reports are cached under `~/.cache/atproto-tools/bsky-follows`.
+
+- `--actor HANDLE_OR_DID` — Inspect this actor instead of `identity.identifier` from config.
+- `--limit N` — Inspect only the first `N` follows.
+- `--sort FIELD` — Sort by `FIELD`: `handle`, `did`, `profile-url`, `last-post-at`, `last-post-rkey`, `last-post-url` (camelCase aliases accepted). Default: `last-post-at`.
+- `--asc` / `--desc` — Sort direction (default: ascending).
+- `--sa FIELD` / `--sd FIELD` — Sort by `FIELD` ascending/descending.
+- `--refresh` — Ignore cache and fetch fresh data.
+- `--json` — Print the complete cached report as formatted JSON.
 
 ### Project Structure
 
@@ -43,6 +70,7 @@ crates
   ├── margin
   ├── tngl
   ├── semble
+  ├── bsky
   └── leaflet
 ```
 
@@ -62,4 +90,16 @@ produce markdown files for strings (TODO).
 
 For repos and issues, we want to generate task lists (TODO).
 
-### BlueSky
+### BlueSky (app.bsky.* NSID namespace)
+
+Fetches and analyzes data from the public Bluesky API (`public.api.bsky.app`).
+
+**`atp bsky follows`** resolves the actor's profile, then paginates through all follows
+via `app.bsky.graph.getFollows`.
+For each follow it fetches the latest original post (non-repost, authored by that account)
+via `app.bsky.feed.getAuthorFeed`, up to 8 concurrent requests with a 50 ms stagger.
+
+Results include handle, DID, profile URL, last post timestamp, and last post URL.
+
+Reports are cached as JSON under `~/.cache/atproto-tools/bsky-follows/`, keyed with a
+SHA-256 hash of the actor's DID, handle, follows count.

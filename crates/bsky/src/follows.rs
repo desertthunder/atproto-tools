@@ -1,4 +1,5 @@
 use std::{
+    cmp::Ordering,
     env, fs,
     path::{Path, PathBuf},
     time::{Duration, SystemTime, UNIX_EPOCH},
@@ -42,6 +43,46 @@ pub struct FollowLastPost {
     pub last_post_url: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FollowsOptions {
+    pub limit: Option<usize>,
+    pub sort: FollowsSort,
+}
+
+impl Default for FollowsOptions {
+    fn default() -> Self {
+        Self { limit: None, sort: FollowsSort::default() }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FollowsSort {
+    pub field: FollowsSortField,
+    pub direction: FollowsSortDirection,
+}
+
+impl Default for FollowsSort {
+    fn default() -> Self {
+        Self { field: FollowsSortField::LastPostAt, direction: FollowsSortDirection::Asc }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FollowsSortField {
+    Handle,
+    Did,
+    ProfileUrl,
+    LastPostAt,
+    LastPostRkey,
+    LastPostUrl,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FollowsSortDirection {
+    Asc,
+    Desc,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FollowsProgress {
     ResolvingActor,
@@ -69,11 +110,11 @@ struct CacheFile {
 pub async fn fetch_follows_report(
     client: &AtprotoClient, actor: &str, refresh: bool,
 ) -> Result<FollowsReport, FollowsReportError> {
-    fetch_follows_report_with_progress(client, actor, refresh, None, |_| {}).await
+    fetch_follows_report_with_progress(client, actor, refresh, FollowsOptions::default(), |_| {}).await
 }
 
 pub async fn fetch_follows_report_with_progress<P>(
-    client: &AtprotoClient, actor: &str, refresh: bool, limit: Option<usize>, mut progress: P,
+    client: &AtprotoClient, actor: &str, refresh: bool, options: FollowsOptions, mut progress: P,
 ) -> Result<FollowsReport, FollowsReportError>
 where
     P: FnMut(FollowsProgress) + Send,
@@ -85,7 +126,7 @@ where
         &profile.handle,
         profile.follows_count,
         profile.indexed_at.as_deref(),
-        limit,
+        options.limit,
     );
     let cache_path = cache_path(&profile.did, &cache_key)?;
 
@@ -93,15 +134,17 @@ where
         progress(FollowsProgress::CheckingCache { path: cache_path.clone() });
         if let Some(report) = read_cache(&cache_path)? {
             progress(FollowsProgress::CacheHit { path: cache_path.clone(), count: report.follows.len() });
-            return Ok(report.into_report(cache_path));
+            let mut report = report.into_report(cache_path);
+            sort_report(&mut report, options.sort);
+            return Ok(report);
         }
     }
 
-    if let Some(limit) = limit {
+    if let Some(limit) = options.limit {
         progress(FollowsProgress::ApplyingLimit { limit });
     }
 
-    let follows = fetch_all_follows(client, actor, limit, &mut progress).await?;
+    let follows = fetch_all_follows(client, actor, options.limit, &mut progress).await?;
     let rows = fetch_follows_last_posts(client.clone(), follows, &mut progress).await?;
 
     let cache_file = CacheFile {
@@ -116,7 +159,9 @@ where
     progress(FollowsProgress::WritingCache { path: cache_path.clone() });
     write_cache(&cache_path, &cache_file)?;
     progress(FollowsProgress::WroteCache { path: cache_path.clone() });
-    Ok(cache_file.into_report(cache_path))
+    let mut report = cache_file.into_report(cache_path);
+    sort_report(&mut report, options.sort);
+    Ok(report)
 }
 
 async fn fetch_all_follows<P>(
@@ -277,6 +322,55 @@ fn cache_key(
     hex_digest(hash.finalize().as_slice())
 }
 
+fn sort_report(report: &mut FollowsReport, sort: FollowsSort) {
+    report
+        .follows
+        .sort_by(|left, right| compare_follow(left, right, sort).then_with(|| left.did.cmp(&right.did)));
+}
+
+fn compare_follow(left: &FollowLastPost, right: &FollowLastPost, sort: FollowsSort) -> Ordering {
+    match sort.field {
+        FollowsSortField::Handle => compare_required(&left.handle, &right.handle, sort.direction),
+        FollowsSortField::Did => compare_required(&left.did, &right.did, sort.direction),
+        FollowsSortField::ProfileUrl => compare_required(&left.profile_url, &right.profile_url, sort.direction),
+        FollowsSortField::LastPostAt => compare_optional(
+            left.last_post_at.as_deref(),
+            right.last_post_at.as_deref(),
+            sort.direction,
+        ),
+        FollowsSortField::LastPostRkey => compare_optional(
+            left.last_post_rkey.as_deref(),
+            right.last_post_rkey.as_deref(),
+            sort.direction,
+        ),
+        FollowsSortField::LastPostUrl => compare_optional(
+            left.last_post_url.as_deref(),
+            right.last_post_url.as_deref(),
+            sort.direction,
+        ),
+    }
+    .then_with(|| left.handle.cmp(&right.handle))
+}
+
+fn compare_required(left: &str, right: &str, direction: FollowsSortDirection) -> Ordering {
+    match direction {
+        FollowsSortDirection::Asc => left.cmp(right),
+        FollowsSortDirection::Desc => right.cmp(left),
+    }
+}
+
+fn compare_optional(left: Option<&str>, right: Option<&str>, direction: FollowsSortDirection) -> Ordering {
+    match (
+        left.filter(|value| !value.is_empty()),
+        right.filter(|value| !value.is_empty()),
+    ) {
+        (Some(left), Some(right)) => compare_required(left, right, direction),
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
 fn cache_path(did: &str, cache_key: &str) -> Result<PathBuf, FollowsReportError> {
     let base = cache_base_dir().ok_or(FollowsReportError::MissingCacheDir)?;
     Ok(base
@@ -385,4 +479,72 @@ pub enum FollowsReportError {
     SerializeCache(serde_json::Error),
     #[error("failed to write cache at {path}: {source}")]
     WriteCache { path: PathBuf, source: std::io::Error },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sorts_last_post_at_with_missing_values_last() {
+        let mut report = report(vec![
+            follow("newer", Some("2026-05-10T10:00:00.000Z")),
+            follow("missing", None),
+            follow("older", Some("2026-05-09T10:00:00.000Z")),
+        ]);
+
+        sort_report(
+            &mut report,
+            FollowsSort { field: FollowsSortField::LastPostAt, direction: FollowsSortDirection::Asc },
+        );
+        assert_eq!(handles(&report), ["older", "newer", "missing"]);
+
+        sort_report(
+            &mut report,
+            FollowsSort { field: FollowsSortField::LastPostAt, direction: FollowsSortDirection::Desc },
+        );
+        assert_eq!(handles(&report), ["newer", "older", "missing"]);
+    }
+
+    #[test]
+    fn sorts_handles_descending() {
+        let mut report = report(vec![
+            follow("alpha", None),
+            follow("charlie", None),
+            follow("bravo", None),
+        ]);
+
+        sort_report(
+            &mut report,
+            FollowsSort { field: FollowsSortField::Handle, direction: FollowsSortDirection::Desc },
+        );
+
+        assert_eq!(handles(&report), ["charlie", "bravo", "alpha"]);
+    }
+
+    fn report(follows: Vec<FollowLastPost>) -> FollowsReport {
+        FollowsReport {
+            actor: "actor.test".to_string(),
+            actor_did: "did:plc:actor".to_string(),
+            cache_key: "cache".to_string(),
+            cache_path: PathBuf::from("cache.json"),
+            generated_at_unix: 0,
+            follows,
+        }
+    }
+
+    fn follow(handle: &str, last_post_at: Option<&str>) -> FollowLastPost {
+        FollowLastPost {
+            handle: handle.to_string(),
+            did: format!("did:plc:{handle}"),
+            profile_url: profile_url(handle),
+            last_post_at: last_post_at.map(str::to_string),
+            last_post_rkey: None,
+            last_post_url: None,
+        }
+    }
+
+    fn handles(report: &FollowsReport) -> Vec<&str> {
+        report.follows.iter().map(|follow| follow.handle.as_str()).collect()
+    }
 }
