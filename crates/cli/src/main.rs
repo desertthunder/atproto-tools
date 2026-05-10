@@ -143,6 +143,10 @@ enum BskyCommands {
         #[arg(long, value_name = "HANDLE_OR_DID")]
         actor: Option<String>,
 
+        /// Only inspect the first N follows.
+        #[arg(long)]
+        limit: Option<usize>,
+
         /// Ignore any matching cache file and fetch fresh data.
         #[arg(long)]
         refresh: bool,
@@ -234,11 +238,12 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Bsky { command } => match command {
-            BskyCommands::Follows { actor, refresh, json } => {
+            BskyCommands::Follows { actor, limit, refresh, json } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
                 let client = AtprotoClient::new(config.services)?;
                 let report =
-                    fetch_follows_report_with_progress(&client, &actor, refresh, print_follows_progress).await?;
+                    fetch_follows_report_with_progress(&client, &actor, refresh, limit, print_follows_progress).await?;
+                echo::clear_status();
 
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
@@ -257,17 +262,58 @@ async fn main() -> anyhow::Result<()> {
 }
 
 fn print_follows(follows: &[FollowLastPost]) {
-    println!("handle\tdid\tprofile\tlastPostAt\tlastPost");
-    for follow in follows {
+    let rows = follows
+        .iter()
+        .map(|follow| {
+            [
+                follow.handle.as_str(),
+                follow.did.as_str(),
+                follow.profile_url.as_str(),
+                follow.last_post_at.as_deref().unwrap_or(""),
+                follow.last_post_url.as_deref().unwrap_or(""),
+            ]
+        })
+        .collect::<Vec<_>>();
+    let widths = column_widths(&["handle", "did", "profile", "lastPostAt"], &rows);
+
+    println!(
+        "{:<handle_width$}  {:<did_width$}  {:<profile_width$}  {:<last_post_at_width$}  lastPost",
+        "handle",
+        "did",
+        "profile",
+        "lastPostAt",
+        handle_width = widths[0],
+        did_width = widths[1],
+        profile_width = widths[2],
+        last_post_at_width = widths[3],
+    );
+
+    for row in rows {
         println!(
-            "{}\t{}\t{}\t{}\t{}",
-            follow.handle,
-            follow.did,
-            follow.profile_url,
-            follow.last_post_at.as_deref().unwrap_or(""),
-            follow.last_post_url.as_deref().unwrap_or("")
+            "{:<handle_width$}  {:<did_width$}  {:<profile_width$}  {:<last_post_at_width$}  {}",
+            row[0],
+            row[1],
+            row[2],
+            row[3],
+            row[4],
+            handle_width = widths[0],
+            did_width = widths[1],
+            profile_width = widths[2],
+            last_post_at_width = widths[3],
         );
     }
+}
+
+fn column_widths(headers: &[&str; 4], rows: &[[&str; 5]]) -> [usize; 4] {
+    let mut widths = headers.map(str::len);
+
+    for row in rows {
+        for index in 0..widths.len() {
+            widths[index] = widths[index].max(row[index].len());
+        }
+    }
+
+    widths
 }
 
 fn print_follows_progress(progress: FollowsProgress) {
@@ -277,6 +323,7 @@ fn print_follows_progress(progress: FollowsProgress) {
         FollowsProgress::CacheHit { path, count } => {
             echo::status(format!("cache hit: {count} follows from {}", path.display()));
         }
+        FollowsProgress::ApplyingLimit { limit } => echo::status(format!("limiting to {limit} follows")),
         FollowsProgress::FetchingFollowsPage { page } => {
             echo::status(format!("fetching follows page {page}"));
         }

@@ -43,3 +43,7 @@ where
 {
     eprintln!("{}: {completed}/{total} {label}", "progress".blue().bold());
 }
+
+pub fn clear_status() {
+    // Status/progress messages are line-oriented, so there is no active line to clear.
+}

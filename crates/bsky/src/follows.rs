@@ -12,11 +12,13 @@ use sha2::{Digest, Sha256};
 
 use super::{FeedDefsFeedViewPost, GetAuthorFeedOutput, GetFollowsOutput};
 
-const CACHE_VERSION: u8 = 1;
+const CACHE_VERSION: u8 = 2;
 const FOLLOWS_METHOD: &str = "app.bsky.graph.getFollows";
 const AUTHOR_FEED_METHOD: &str = "app.bsky.feed.getAuthorFeed";
 const LAST_POST_MAX_PARALLEL: usize = 8;
 const LAST_POST_START_DELAY_MS: u64 = 50;
+const AUTHOR_FEED_LIMIT: u16 = 100;
+const AUTHOR_FEED_MAX_PAGES: usize = 5;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -45,6 +47,7 @@ pub enum FollowsProgress {
     ResolvingActor,
     CheckingCache { path: PathBuf },
     CacheHit { path: PathBuf, count: usize },
+    ApplyingLimit { limit: usize },
     FetchingFollowsPage { page: usize },
     FetchedFollowsPage { page: usize, total: usize },
     FetchingLastPosts { completed: usize, total: usize },
@@ -66,11 +69,11 @@ struct CacheFile {
 pub async fn fetch_follows_report(
     client: &AtprotoClient, actor: &str, refresh: bool,
 ) -> Result<FollowsReport, FollowsReportError> {
-    fetch_follows_report_with_progress(client, actor, refresh, |_| {}).await
+    fetch_follows_report_with_progress(client, actor, refresh, None, |_| {}).await
 }
 
 pub async fn fetch_follows_report_with_progress<P>(
-    client: &AtprotoClient, actor: &str, refresh: bool, mut progress: P,
+    client: &AtprotoClient, actor: &str, refresh: bool, limit: Option<usize>, mut progress: P,
 ) -> Result<FollowsReport, FollowsReportError>
 where
     P: FnMut(FollowsProgress) + Send,
@@ -82,6 +85,7 @@ where
         &profile.handle,
         profile.follows_count,
         profile.indexed_at.as_deref(),
+        limit,
     );
     let cache_path = cache_path(&profile.did, &cache_key)?;
 
@@ -93,7 +97,11 @@ where
         }
     }
 
-    let follows = fetch_all_follows(client, actor, &mut progress).await?;
+    if let Some(limit) = limit {
+        progress(FollowsProgress::ApplyingLimit { limit });
+    }
+
+    let follows = fetch_all_follows(client, actor, limit, &mut progress).await?;
     let rows = fetch_follows_last_posts(client.clone(), follows, &mut progress).await?;
 
     let cache_file = CacheFile {
@@ -112,7 +120,7 @@ where
 }
 
 async fn fetch_all_follows<P>(
-    client: &AtprotoClient, actor: &str, progress: &mut P,
+    client: &AtprotoClient, actor: &str, limit: Option<usize>, progress: &mut P,
 ) -> Result<Vec<super::ActorDefsProfileView>, FollowsReportError>
 where
     P: FnMut(FollowsProgress),
@@ -133,7 +141,14 @@ where
             .public_xrpc_query::<GetFollowsOutput>(FOLLOWS_METHOD, &query)
             .await?;
         follows.extend(page.follows);
+        if let Some(limit) = limit {
+            follows.truncate(limit);
+        }
         progress(FollowsProgress::FetchedFollowsPage { page: page_number, total: follows.len() });
+
+        if limit.is_some_and(|limit| follows.len() >= limit) {
+            break;
+        }
 
         let Some(next_cursor) = page.cursor else {
             break;
@@ -188,21 +203,47 @@ struct LastPost {
 }
 
 async fn fetch_last_post(client: &AtprotoClient, actor: &str) -> Result<Option<LastPost>, ClientError> {
-    let query = vec![
-        ("actor", actor.to_string()),
-        ("limit", "10".to_string()),
-        ("filter", "posts_with_replies".to_string()),
-        ("includePins", "false".to_string()),
-    ];
-    let feed = client
-        .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
-        .await?;
+    let mut cursor: Option<String> = None;
 
-    Ok(feed.feed.into_iter().find_map(last_post_from_feed_item))
+    for _ in 0..AUTHOR_FEED_MAX_PAGES {
+        let mut query = vec![
+            ("actor", actor.to_string()),
+            ("limit", AUTHOR_FEED_LIMIT.to_string()),
+            ("filter", "posts_with_replies".to_string()),
+            ("includePins", "false".to_string()),
+        ];
+        if let Some(cursor) = &cursor {
+            query.push(("cursor", cursor.clone()));
+        }
+
+        let feed = client
+            .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
+            .await?;
+
+        if let Some(post) = feed
+            .feed
+            .into_iter()
+            .find_map(|item| last_post_from_feed_item(actor, item))
+        {
+            return Ok(Some(post));
+        }
+
+        let Some(next_cursor) = feed.cursor else {
+            break;
+        };
+
+        if next_cursor.is_empty() {
+            break;
+        }
+
+        cursor = Some(next_cursor);
+    }
+
+    Ok(None)
 }
 
-fn last_post_from_feed_item(item: FeedDefsFeedViewPost) -> Option<LastPost> {
-    if item.reason.is_some() {
+fn last_post_from_feed_item(actor: &str, item: FeedDefsFeedViewPost) -> Option<LastPost> {
+    if item.reason.is_some() || item.post.author.did != actor {
         return None;
     }
 
@@ -219,7 +260,9 @@ fn last_post_from_feed_item(item: FeedDefsFeedViewPost) -> Option<LastPost> {
     Some(LastPost { created_at, rkey: rkey.clone(), url: post_url(&handle, &rkey) })
 }
 
-fn cache_key(did: &str, handle: &str, follows_count: Option<u64>, indexed_at: Option<&str>) -> String {
+fn cache_key(
+    did: &str, handle: &str, follows_count: Option<u64>, indexed_at: Option<&str>, limit: Option<usize>,
+) -> String {
     let mut hash = Sha256::new();
     hash.update([CACHE_VERSION]);
     hash.update(did.as_bytes());
@@ -229,6 +272,8 @@ fn cache_key(did: &str, handle: &str, follows_count: Option<u64>, indexed_at: Op
     hash.update(follows_count.unwrap_or_default().to_string().as_bytes());
     hash.update([0]);
     hash.update(indexed_at.unwrap_or_default().as_bytes());
+    hash.update([0]);
+    hash.update(limit.map(|limit| limit.to_string()).unwrap_or_default().as_bytes());
     hex_digest(hash.finalize().as_slice())
 }
 
