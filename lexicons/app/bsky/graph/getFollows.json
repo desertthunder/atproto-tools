@@ -1,7 +1,7 @@
 {
   "defs": {
     "main": {
-      "description": "Enumerates accounts which follow a specified account (actor).",
+      "description": "Enumerates accounts which a specified account (actor) follows.",
       "output": {
         "encoding": "application/json",
         "schema": {
@@ -9,7 +9,7 @@
             "cursor": {
               "type": "string"
             },
-            "followers": {
+            "follows": {
               "items": {
                 "ref": "app.bsky.actor.defs#profileView",
                 "type": "ref"
@@ -23,7 +23,7 @@
           },
           "required": [
             "subject",
-            "followers"
+            "follows"
           ],
           "type": "object"
         }
@@ -52,6 +52,6 @@
       "type": "query"
     }
   },
-  "id": "app.bsky.graph.getFollowers",
+  "id": "app.bsky.graph.getFollows",
   "lexicon": 1
 }

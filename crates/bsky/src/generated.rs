@@ -754,7 +754,7 @@ pub struct PostTextSlice {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetFollowersParams {
+pub struct GetFollowsParams {
     pub actor: std::string::String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<std::string::String>,
@@ -764,9 +764,9 @@ pub struct GetFollowersParams {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-pub struct GetFollowersOutput {
+pub struct GetFollowsOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<std::string::String>,
-    pub followers: Vec<ActorDefsProfileView>,
+    pub follows: Vec<ActorDefsProfileView>,
     pub subject: ActorDefsProfileView,
 }

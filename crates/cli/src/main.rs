@@ -1,4 +1,4 @@
-use atp_tools_bsky::{FollowerLastPost, fetch_followers_report};
+use atp_tools_bsky::{FollowLastPost, FollowsProgress, fetch_follows_report_with_progress};
 use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -137,9 +137,8 @@ enum MarginCommands {
 
 #[derive(Debug, Subcommand)]
 enum BskyCommands {
-    /// Fetch followers and their latest posts.
-    #[command(alias = "follows")]
-    Followers {
+    /// Fetch follows and their latest posts.
+    Follows {
         /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
         #[arg(long, value_name = "HANDLE_OR_DID")]
         actor: Option<String>,
@@ -235,19 +234,20 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Bsky { command } => match command {
-            BskyCommands::Followers { actor, refresh, json } => {
+            BskyCommands::Follows { actor, refresh, json } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
                 let client = AtprotoClient::new(config.services)?;
-                let report = fetch_followers_report(&client, &actor, refresh).await?;
+                let report =
+                    fetch_follows_report_with_progress(&client, &actor, refresh, print_follows_progress).await?;
 
                 if json {
                     println!("{}", serde_json::to_string_pretty(&report)?);
                 } else {
                     echo::pair("actor", &report.actor);
                     echo::pair("did", &report.actor_did);
-                    echo::pair("followers", report.followers.len());
+                    echo::pair("follows", report.follows.len());
                     echo::pair("cache", report.cache_path.display());
-                    print_followers(&report.followers);
+                    print_follows(&report.follows);
                 }
             }
         },
@@ -256,17 +256,40 @@ async fn main() -> anyhow::Result<()> {
     Ok(())
 }
 
-fn print_followers(followers: &[FollowerLastPost]) {
+fn print_follows(follows: &[FollowLastPost]) {
     println!("handle\tdid\tprofile\tlastPostAt\tlastPost");
-    for follower in followers {
+    for follow in follows {
         println!(
             "{}\t{}\t{}\t{}\t{}",
-            follower.handle,
-            follower.did,
-            follower.profile_url,
-            follower.last_post_at.as_deref().unwrap_or(""),
-            follower.last_post_url.as_deref().unwrap_or("")
+            follow.handle,
+            follow.did,
+            follow.profile_url,
+            follow.last_post_at.as_deref().unwrap_or(""),
+            follow.last_post_url.as_deref().unwrap_or("")
         );
+    }
+}
+
+fn print_follows_progress(progress: FollowsProgress) {
+    match progress {
+        FollowsProgress::ResolvingActor => echo::status("resolving actor"),
+        FollowsProgress::CheckingCache { path } => echo::status(format!("checking cache {}", path.display())),
+        FollowsProgress::CacheHit { path, count } => {
+            echo::status(format!("cache hit: {count} follows from {}", path.display()));
+        }
+        FollowsProgress::FetchingFollowsPage { page } => {
+            echo::status(format!("fetching follows page {page}"));
+        }
+        FollowsProgress::FetchedFollowsPage { page: _, total } => {
+            echo::status(format!("fetched {total} follows"));
+        }
+        FollowsProgress::FetchingLastPosts { completed, total } => {
+            if completed == 1 || completed == total || completed % 25 == 0 {
+                echo::progress("latest posts", completed, total);
+            }
+        }
+        FollowsProgress::WritingCache { path } => echo::status(format!("writing cache {}", path.display())),
+        FollowsProgress::WroteCache { path } => echo::status(format!("wrote cache {}", path.display())),
     }
 }
 
@@ -310,7 +333,7 @@ fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
                 "feed/defs.json".to_string(),
                 "feed/getAuthorFeed.json".to_string(),
                 "feed/post.json".to_string(),
-                "graph/getFollowers.json".to_string(),
+                "graph/getFollows.json".to_string(),
             ],
             preserve_paths: true,
         },

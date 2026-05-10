@@ -24,17 +24,34 @@ where
     F: Fn(I) -> Fut + Clone + Send + Sync + 'static,
     Fut: Future<Output = Result<O, E>> + Send + 'static,
 {
+    run_parallel_rate_limited_with_progress(items, config, worker, |_| {}).await
+}
+
+pub async fn run_parallel_rate_limited_with_progress<I, O, E, F, Fut, P>(
+    items: Vec<I>, config: ParallelConfig, worker: F, mut progress: P,
+) -> Result<Vec<O>, ParallelTaskError<E>>
+where
+    I: Send + 'static,
+    O: Send + 'static,
+    E: Send + 'static,
+    F: Fn(I) -> Fut + Clone + Send + Sync + 'static,
+    Fut: Future<Output = Result<O, E>> + Send + 'static,
+    P: FnMut(ParallelProgress),
+{
     if config.max_parallel == 0 {
         return Err(ParallelTaskError::InvalidMaxParallel);
     }
 
     let len = items.len();
+    let mut completed = 0;
     let mut results = (0..len).map(|_| None).collect::<Vec<_>>();
     let mut tasks = JoinSet::new();
 
     for (index, item) in items.into_iter().enumerate() {
         while tasks.len() >= config.max_parallel {
             collect_next(&mut tasks, &mut results).await?;
+            completed += 1;
+            progress(ParallelProgress { completed, total: len });
         }
 
         if index > 0 && !config.start_delay.is_zero() {
@@ -47,12 +64,20 @@ where
 
     while !tasks.is_empty() {
         collect_next(&mut tasks, &mut results).await?;
+        completed += 1;
+        progress(ParallelProgress { completed, total: len });
     }
 
     Ok(results
         .into_iter()
         .map(|result| result.expect("all parallel task results were collected"))
         .collect())
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParallelProgress {
+    pub completed: usize,
+    pub total: usize,
 }
 
 async fn collect_next<O, E>(

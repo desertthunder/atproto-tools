@@ -29,3 +29,17 @@ where
         }
     }
 }
+
+pub fn status<D>(message: D)
+where
+    D: std::fmt::Display,
+{
+    eprintln!("{} {message}", "status".blue().bold());
+}
+
+pub fn progress<D>(label: D, completed: usize, total: usize)
+where
+    D: std::fmt::Display,
+{
+    eprintln!("{}: {completed}/{total} {label}", "progress".blue().bold());
+}
