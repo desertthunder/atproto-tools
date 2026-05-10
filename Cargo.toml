@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/cli", "crates/core", "crates/margin", "crates/tngl"]
+members = ["crates/bsky","crates/cli", "crates/core", "crates/margin", "crates/tngl"]
 
 [workspace.dependencies]
 anyhow = "1.0.98"
