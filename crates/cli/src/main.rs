@@ -63,6 +63,7 @@ enum ConfigCommands {
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 enum Tool {
+    Bsky,
     Margin,
     #[value(alias = "tngl")]
     Tangled,
@@ -227,6 +228,7 @@ fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument
 
 fn default_lexicon_input(tool: Tool) -> PathBuf {
     match tool {
+        Tool::Bsky => PathBuf::from("lexicons/app/bsky"),
         Tool::Margin => PathBuf::from("lexicons/at/margin"),
         Tool::Tangled => PathBuf::from("lexicons/sh/tangled"),
     }
@@ -234,6 +236,7 @@ fn default_lexicon_input(tool: Tool) -> PathBuf {
 
 fn default_generated_output(tool: Tool) -> PathBuf {
     match tool {
+        Tool::Bsky => PathBuf::from("crates/bsky/src/generated.rs"),
         Tool::Margin => PathBuf::from("crates/margin/src/generated.rs"),
         Tool::Tangled => PathBuf::from("crates/tngl/src/generated.rs"),
     }
@@ -241,6 +244,20 @@ fn default_generated_output(tool: Tool) -> PathBuf {
 
 fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
     match tool {
+        Tool::Bsky => LexiconSyncSpec {
+            repo: "bluesky-social/atproto".to_string(),
+            commit,
+            source_path: "lexicons/app/bsky".to_string(),
+            dest_dir: PathBuf::from("lexicons/app/bsky"),
+            files: vec![
+                "actor/defs.json".to_string(),
+                "feed/defs.json".to_string(),
+                "feed/getAuthorFeed.json".to_string(),
+                "feed/post.json".to_string(),
+                "graph/getFollowers.json".to_string(),
+            ],
+            preserve_paths: true,
+        },
         Tool::Margin => LexiconSyncSpec {
             repo: "margin-at/margin".to_string(),
             commit,
@@ -252,6 +269,7 @@ fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
                 "like.json".to_string(),
                 "note.json".to_string(),
             ],
+            preserve_paths: false,
         },
         Tool::Tangled => LexiconSyncSpec {
             repo: "tangled.org/tangled.org/core".to_string(),
@@ -263,6 +281,7 @@ fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
                 "repo/repo.json".to_string(),
                 "issue/issue.json".to_string(),
             ],
+            preserve_paths: false,
         },
     }
 }

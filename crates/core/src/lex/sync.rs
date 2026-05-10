@@ -10,6 +10,7 @@ pub struct LexiconSyncSpec {
     pub source_path: String,
     pub dest_dir: PathBuf,
     pub files: Vec<String>,
+    pub preserve_paths: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -46,7 +47,16 @@ pub async fn sync_lexicons(spec: LexiconSyncSpec) -> Result<LexiconSyncReport, L
             .map_err(|source| LexiconSyncError::Json { file: file.clone(), source })?;
         let pretty = serde_json::to_string_pretty(&json)
             .map_err(|source| LexiconSyncError::Json { file: file.clone(), source })?;
-        let dest = spec.dest_dir.join(dest_file_name(file)?);
+        let dest = if spec.preserve_paths {
+            spec.dest_dir.join(clean_relative_path(file)?)
+        } else {
+            spec.dest_dir.join(dest_file_name(file)?)
+        };
+
+        if let Some(parent) = dest.parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|source| LexiconSyncError::CreateDir { path: parent.to_path_buf(), source })?;
+        }
 
         std::fs::write(&dest, format!("{pretty}\n"))
             .map_err(|source| LexiconSyncError::Write { path: dest.clone(), source })?;
@@ -114,4 +124,20 @@ fn dest_file_name(file: &str) -> Result<&Path, LexiconSyncError> {
         .file_name()
         .map(Path::new)
         .ok_or_else(|| LexiconSyncError::InvalidFileName(file.to_string()))
+}
+
+fn clean_relative_path(file: &str) -> Result<&Path, LexiconSyncError> {
+    let path = Path::new(file);
+    if path.is_absolute()
+        || path.components().any(|component| {
+            matches!(
+                component,
+                std::path::Component::ParentDir | std::path::Component::RootDir
+            )
+        })
+    {
+        return Err(LexiconSyncError::InvalidFileName(file.to_string()));
+    }
+
+    Ok(path)
 }

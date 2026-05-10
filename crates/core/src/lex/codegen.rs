@@ -21,17 +21,23 @@ pub fn generate_serde_models(
     collect_json_files(input_dir, &mut files)?;
     files.sort();
 
-    let mut structs = Vec::new();
-    let mut generated = String::from(
-        "// This file is generated from AT Protocol Lexicon JSON. Do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\n\n",
-    );
-
+    let mut lexicons = Vec::with_capacity(files.len());
     for path in files {
         let contents =
             fs::read_to_string(&path).map_err(|source| CodegenError::ReadFile { path: path.clone(), source })?;
         let lexicon = serde_json::from_str::<Value>(&contents)
             .map_err(|source| CodegenError::Json { path: path.clone(), source })?;
-        generate_lexicon(&lexicon, &path, &mut generated, &mut structs)?;
+        lexicons.push((path, lexicon));
+    }
+
+    let ref_types = collect_ref_types(&lexicons)?;
+    let mut structs = Vec::new();
+    let mut generated = String::from(
+        "// This file is generated from AT Protocol Lexicon JSON. Do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\n\n",
+    );
+
+    for (path, lexicon) in lexicons {
+        generate_lexicon(&lexicon, &path, &ref_types, &mut generated, &mut structs)?;
     }
 
     if let Some(parent) = output.parent() {
@@ -77,7 +83,7 @@ fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Codege
 }
 
 fn generate_lexicon(
-    lexicon: &Value, path: &Path, output: &mut String, structs: &mut Vec<String>,
+    lexicon: &Value, path: &Path, ref_types: &BTreeMap<String, String>, output: &mut String, structs: &mut Vec<String>,
 ) -> Result<(), CodegenError> {
     let id = lexicon
         .get("id")
@@ -87,7 +93,7 @@ fn generate_lexicon(
         .get("defs")
         .and_then(Value::as_object)
         .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "defs" })?;
-    let prefix = safe_type_name(&pascal_case(id.rsplit('.').next().unwrap_or(id)));
+    let prefix = safe_type_name(&lexicon_prefix(id));
 
     for (def_name, def) in defs {
         let Some(kind) = def.get("type").and_then(Value::as_str) else {
@@ -100,12 +106,23 @@ fn generate_lexicon(
                     .get("record")
                     .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "record" })?;
                 let struct_name = prefix.clone();
-                emit_struct(output, structs, &prefix, &struct_name, Some(id), record)?;
+                emit_struct(output, structs, ref_types, &prefix, &struct_name, Some(id), record)?;
             }
             "object" => {
                 let struct_name =
                     if def_name == "main" { prefix.clone() } else { format!("{prefix}{}", pascal_case(def_name)) };
-                emit_struct(output, structs, &prefix, &struct_name, None, def)?;
+                emit_struct(output, structs, ref_types, &prefix, &struct_name, None, def)?;
+            }
+            "query" | "procedure" => {
+                if let Some(parameters) = def.get("parameters") {
+                    let struct_name = format!("{prefix}Params");
+                    emit_struct(output, structs, ref_types, &prefix, &struct_name, None, parameters)?;
+                }
+
+                if let Some(schema) = def.get("output").and_then(|output| output.get("schema")) {
+                    let struct_name = format!("{prefix}Output");
+                    emit_struct(output, structs, ref_types, &prefix, &struct_name, None, schema)?;
+                }
             }
             _ => {}
         }
@@ -115,8 +132,8 @@ fn generate_lexicon(
 }
 
 fn emit_struct(
-    output: &mut String, structs: &mut Vec<String>, lexicon_prefix: &str, struct_name: &str, record_type: Option<&str>,
-    object: &Value,
+    output: &mut String, structs: &mut Vec<String>, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str,
+    struct_name: &str, record_type: Option<&str>, object: &Value,
 ) -> Result<(), CodegenError> {
     let required = object
         .get("required")
@@ -144,7 +161,7 @@ fn emit_struct(
     let mut sorted = properties.into_iter().collect::<BTreeMap<_, _>>();
     for (name, schema) in &mut sorted {
         let field_name = rust_field_name(name);
-        let field_type = rust_type(schema, lexicon_prefix);
+        let field_type = rust_type(schema, ref_types, lexicon_prefix);
         let is_required = required.contains(name.as_str());
         if !is_required {
             output.push_str("    #[serde(skip_serializing_if = \"Option::is_none\")]\n");
@@ -168,7 +185,7 @@ fn emit_struct(
     Ok(())
 }
 
-fn rust_type(schema: &Value, lexicon_prefix: &str) -> String {
+fn rust_type(schema: &Value, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str) -> String {
     match schema.get("type").and_then(Value::as_str) {
         Some("string") => "std::string::String".to_string(),
         Some("integer") => "i64".to_string(),
@@ -176,21 +193,25 @@ fn rust_type(schema: &Value, lexicon_prefix: &str) -> String {
         Some("array") => {
             let item_type = schema
                 .get("items")
-                .map(|items| rust_type(items, lexicon_prefix))
+                .map(|items| rust_type(items, ref_types, lexicon_prefix))
                 .unwrap_or_else(|| "serde_json::Value".to_string());
             format!("Vec<{item_type}>")
         }
         Some("ref") => schema
             .get("ref")
             .and_then(Value::as_str)
-            .and_then(|reference| local_ref_type(reference, lexicon_prefix))
+            .and_then(|reference| ref_type(reference, ref_types, lexicon_prefix))
             .unwrap_or_else(|| "serde_json::Value".to_string()),
         Some("object") => "serde_json::Value".to_string(),
         _ => "serde_json::Value".to_string(),
     }
 }
 
-fn local_ref_type(reference: &str, lexicon_prefix: &str) -> Option<String> {
+fn ref_type(reference: &str, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str) -> Option<String> {
+    if let Some(rust_type) = ref_types.get(reference) {
+        return Some(rust_type.clone());
+    }
+
     reference.strip_prefix('#').map(|name| {
         if name == "main" {
             safe_type_name(lexicon_prefix)
@@ -200,10 +221,59 @@ fn local_ref_type(reference: &str, lexicon_prefix: &str) -> Option<String> {
     })
 }
 
+fn collect_ref_types(lexicons: &[(PathBuf, Value)]) -> Result<BTreeMap<String, String>, CodegenError> {
+    let mut refs = BTreeMap::new();
+
+    for (path, lexicon) in lexicons {
+        let id = lexicon
+            .get("id")
+            .and_then(Value::as_str)
+            .ok_or_else(|| CodegenError::MissingField { path: path.clone(), field: "id" })?;
+        let defs = lexicon
+            .get("defs")
+            .and_then(Value::as_object)
+            .ok_or_else(|| CodegenError::MissingField { path: path.clone(), field: "defs" })?;
+        let prefix = safe_type_name(&lexicon_prefix(id));
+
+        for (def_name, def) in defs {
+            let Some(kind) = def.get("type").and_then(Value::as_str) else {
+                continue;
+            };
+            let rust_type = match kind {
+                "record" => prefix.clone(),
+                "object" => {
+                    if def_name == "main" {
+                        prefix.clone()
+                    } else {
+                        format!("{prefix}{}", pascal_case(def_name))
+                    }
+                }
+                _ => continue,
+            };
+            refs.insert(format!("{id}#{def_name}"), rust_type);
+        }
+    }
+
+    Ok(refs)
+}
+
 fn safe_type_name(name: &str) -> String {
     match name {
         "String" => "StringRecord".to_string(),
         _ => name.to_string(),
+    }
+}
+
+fn lexicon_prefix(id: &str) -> String {
+    let segments = id.split('.').collect::<Vec<_>>();
+    let Some(last) = segments.last().copied() else {
+        return pascal_case(id);
+    };
+
+    if last == "defs" && segments.len() >= 2 {
+        format!("{}{}", pascal_case(segments[segments.len() - 2]), pascal_case(last))
+    } else {
+        pascal_case(last)
     }
 }
 
