@@ -1,17 +1,11 @@
-use std::{
-    cmp::Ordering,
-    env, fs,
-    path::{Path, PathBuf},
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
-
-use atp_tools_core::{
-    AtprotoClient, ClientError, ParallelConfig, ParallelTaskError, run_parallel_rate_limited_with_progress,
-};
+use super::{FollowsReportError, GetAuthorFeedOutput, GetFollowsOutput};
+use atp_tools_core::run_parallel_rate_limited_with_progress;
+use atp_tools_core::{AtprotoClient, ClientError, ParallelConfig};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-
-use super::{FeedDefsFeedViewPost, GetAuthorFeedOutput, GetFollowsOutput};
+use std::cmp::Ordering;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const CACHE_VERSION: u8 = 2;
 const FOLLOWS_METHOD: &str = "app.bsky.graph.getFollows";
@@ -20,6 +14,7 @@ const LAST_POST_MAX_PARALLEL: usize = 8;
 const LAST_POST_START_DELAY_MS: u64 = 50;
 const AUTHOR_FEED_LIMIT: u16 = 100;
 const AUTHOR_FEED_MAX_PAGES: usize = 5;
+const HEX: &[u8; 16] = b"0123456789abcdef";
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -41,6 +36,13 @@ pub struct FollowLastPost {
     pub last_post_at: Option<String>,
     pub last_post_rkey: Option<String>,
     pub last_post_url: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ActorTopLevelPost {
+    pub created_at: String,
+    pub uri: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -128,7 +130,21 @@ where
         profile.indexed_at.as_deref(),
         options.limit,
     );
-    let cache_path = cache_path(&profile.did, &cache_key)?;
+
+    let cache_path = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
+        .map(|base| base.join("atproto-tools"))
+        .ok_or(FollowsReportError::MissingCacheDir)?
+        .join("bsky-follows")
+        .join(format!(
+            "{}-{cache_key}.json",
+            profile
+                .did
+                .chars()
+                .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
+                .collect::<String>()
+        ));
 
     if !refresh {
         progress(FollowsProgress::CheckingCache { path: cache_path.clone() });
@@ -152,7 +168,10 @@ where
         actor: profile.handle,
         actor_did: profile.did,
         cache_key,
-        generated_at_unix: now_unix(),
+        generated_at_unix: SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_secs())
+            .unwrap_or_default(),
         follows: rows,
     };
 
@@ -247,6 +266,36 @@ struct LastPost {
     url: String,
 }
 
+pub async fn fetch_actor_top_level_last_post(
+    client: &AtprotoClient, actor: &str,
+) -> Result<Option<ActorTopLevelPost>, ClientError> {
+    let query = vec![
+        ("actor", actor.to_string()),
+        ("limit", "1".to_string()),
+        ("filter", "posts_no_replies".to_string()),
+        ("includePins", "false".to_string()),
+    ];
+    let feed = client
+        .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
+        .await?;
+
+    Ok(feed.feed.into_iter().find_map(|item| {
+        if item.reason.is_some() || item.reply.is_some() || item.post.author.did != actor {
+            return None;
+        }
+
+        let created_at = item
+            .post
+            .record
+            .get("createdAt")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&item.post.indexed_at)
+            .to_string();
+
+        Some(ActorTopLevelPost { created_at, uri: item.post.uri })
+    }))
+}
+
 async fn fetch_last_post(client: &AtprotoClient, actor: &str) -> Result<Option<LastPost>, ClientError> {
     let mut cursor: Option<String> = None;
 
@@ -265,11 +314,34 @@ async fn fetch_last_post(client: &AtprotoClient, actor: &str) -> Result<Option<L
             .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
             .await?;
 
-        if let Some(post) = feed
-            .feed
-            .into_iter()
-            .find_map(|item| last_post_from_feed_item(actor, item))
-        {
+        if let Some(post) = feed.feed.into_iter().find_map(|item| {
+            if item.reason.is_some() || item.post.author.did != actor {
+                return None;
+            }
+
+            let created_at = item
+                .post
+                .record
+                .get("createdAt")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or(&item.post.indexed_at)
+                .to_string();
+            let rkey = item
+                .post
+                .uri
+                .rsplit('/')
+                .next()
+                .filter(|rkey| !rkey.is_empty())
+                .map(str::to_string)?;
+            let handle =
+                if item.post.author.handle.is_empty() { item.post.author.did } else { item.post.author.handle };
+
+            Some(LastPost {
+                created_at,
+                rkey: rkey.clone(),
+                url: format!("https://bsky.app/profile/{handle}/post/{rkey}"),
+            })
+        }) {
             return Ok(Some(post));
         }
 
@@ -287,24 +359,6 @@ async fn fetch_last_post(client: &AtprotoClient, actor: &str) -> Result<Option<L
     Ok(None)
 }
 
-fn last_post_from_feed_item(actor: &str, item: FeedDefsFeedViewPost) -> Option<LastPost> {
-    if item.reason.is_some() || item.post.author.did != actor {
-        return None;
-    }
-
-    let created_at = item
-        .post
-        .record
-        .get("createdAt")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or(&item.post.indexed_at)
-        .to_string();
-    let rkey = rkey_from_at_uri(&item.post.uri)?;
-    let handle = if item.post.author.handle.is_empty() { item.post.author.did } else { item.post.author.handle };
-
-    Some(LastPost { created_at, rkey: rkey.clone(), url: post_url(&handle, &rkey) })
-}
-
 fn cache_key(
     did: &str, handle: &str, follows_count: Option<u64>, indexed_at: Option<&str>, limit: Option<usize>,
 ) -> String {
@@ -319,37 +373,42 @@ fn cache_key(
     hash.update(indexed_at.unwrap_or_default().as_bytes());
     hash.update([0]);
     hash.update(limit.map(|limit| limit.to_string()).unwrap_or_default().as_bytes());
-    hex_digest(hash.finalize().as_slice())
+
+    let bytes = hash.finalize();
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        output.push(HEX[(byte >> 4) as usize] as char);
+        output.push(HEX[(byte & 0x0f) as usize] as char);
+    }
+
+    output
 }
 
 fn sort_report(report: &mut FollowsReport, sort: FollowsSort) {
-    report
-        .follows
-        .sort_by(|left, right| compare_follow(left, right, sort).then_with(|| left.did.cmp(&right.did)));
-}
-
-fn compare_follow(left: &FollowLastPost, right: &FollowLastPost, sort: FollowsSort) -> Ordering {
-    match sort.field {
-        FollowsSortField::Handle => compare_required(&left.handle, &right.handle, sort.direction),
-        FollowsSortField::Did => compare_required(&left.did, &right.did, sort.direction),
-        FollowsSortField::ProfileUrl => compare_required(&left.profile_url, &right.profile_url, sort.direction),
-        FollowsSortField::LastPostAt => compare_optional(
-            left.last_post_at.as_deref(),
-            right.last_post_at.as_deref(),
-            sort.direction,
-        ),
-        FollowsSortField::LastPostRkey => compare_optional(
-            left.last_post_rkey.as_deref(),
-            right.last_post_rkey.as_deref(),
-            sort.direction,
-        ),
-        FollowsSortField::LastPostUrl => compare_optional(
-            left.last_post_url.as_deref(),
-            right.last_post_url.as_deref(),
-            sort.direction,
-        ),
-    }
-    .then_with(|| left.handle.cmp(&right.handle))
+    report.follows.sort_by(|left, right| {
+        match sort.field {
+            FollowsSortField::Handle => compare_required(&left.handle, &right.handle, sort.direction),
+            FollowsSortField::Did => compare_required(&left.did, &right.did, sort.direction),
+            FollowsSortField::ProfileUrl => compare_required(&left.profile_url, &right.profile_url, sort.direction),
+            FollowsSortField::LastPostAt => compare_optional(
+                left.last_post_at.as_deref(),
+                right.last_post_at.as_deref(),
+                sort.direction,
+            ),
+            FollowsSortField::LastPostRkey => compare_optional(
+                left.last_post_rkey.as_deref(),
+                right.last_post_rkey.as_deref(),
+                sort.direction,
+            ),
+            FollowsSortField::LastPostUrl => compare_optional(
+                left.last_post_url.as_deref(),
+                right.last_post_url.as_deref(),
+                sort.direction,
+            ),
+        }
+        .then_with(|| left.handle.cmp(&right.handle))
+        .then_with(|| left.did.cmp(&right.did))
+    });
 }
 
 fn compare_required(left: &str, right: &str, direction: FollowsSortDirection) -> Ordering {
@@ -371,26 +430,12 @@ fn compare_optional(left: Option<&str>, right: Option<&str>, direction: FollowsS
     }
 }
 
-fn cache_path(did: &str, cache_key: &str) -> Result<PathBuf, FollowsReportError> {
-    let base = cache_base_dir().ok_or(FollowsReportError::MissingCacheDir)?;
-    Ok(base
-        .join("bsky-follows")
-        .join(format!("{}-{cache_key}.json", safe_file_component(did))))
-}
-
-fn cache_base_dir() -> Option<PathBuf> {
-    env::var_os("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))
-        .map(|base| base.join("atproto-tools"))
-}
-
 fn read_cache(path: &Path) -> Result<Option<CacheFile>, FollowsReportError> {
     if !path.exists() {
         return Ok(None);
     }
 
-    let contents = fs::read_to_string(path)
+    let contents = std::fs::read_to_string(path)
         .map_err(|source| FollowsReportError::ReadCache { path: path.to_path_buf(), source })?;
     let cache = serde_json::from_str::<CacheFile>(&contents)
         .map_err(|source| FollowsReportError::ParseCache { path: path.to_path_buf(), source })?;
@@ -400,12 +445,12 @@ fn read_cache(path: &Path) -> Result<Option<CacheFile>, FollowsReportError> {
 
 fn write_cache(path: &Path, cache: &CacheFile) -> Result<(), FollowsReportError> {
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
+        std::fs::create_dir_all(parent)
             .map_err(|source| FollowsReportError::CreateCacheDir { path: parent.to_path_buf(), source })?;
     }
 
     let contents = serde_json::to_string_pretty(cache).map_err(FollowsReportError::SerializeCache)?;
-    fs::write(path, format!("{contents}\n"))
+    std::fs::write(path, format!("{contents}\n"))
         .map_err(|source| FollowsReportError::WriteCache { path: path.to_path_buf(), source })
 }
 
@@ -424,61 +469,6 @@ impl CacheFile {
 
 fn profile_url(handle: &str) -> String {
     format!("https://bsky.app/profile/{handle}")
-}
-
-fn post_url(handle: &str, rkey: &str) -> String {
-    format!("https://bsky.app/profile/{handle}/post/{rkey}")
-}
-
-fn rkey_from_at_uri(uri: &str) -> Option<String> {
-    uri.rsplit('/')
-        .next()
-        .filter(|rkey| !rkey.is_empty())
-        .map(str::to_string)
-}
-
-fn now_unix() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_secs())
-        .unwrap_or_default()
-}
-
-fn hex_digest(bytes: &[u8]) -> String {
-    const HEX: &[u8; 16] = b"0123456789abcdef";
-    let mut output = String::with_capacity(bytes.len() * 2);
-    for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
-    }
-    output
-}
-
-fn safe_file_component(value: &str) -> String {
-    value
-        .chars()
-        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '-' })
-        .collect()
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum FollowsReportError {
-    #[error(transparent)]
-    Client(#[from] ClientError),
-    #[error("failed to fetch follow posts in parallel: {0}")]
-    ParallelFetch(ParallelTaskError<ClientError>),
-    #[error("could not determine cache directory; set XDG_CACHE_HOME or HOME")]
-    MissingCacheDir,
-    #[error("failed to create cache directory at {path}: {source}")]
-    CreateCacheDir { path: PathBuf, source: std::io::Error },
-    #[error("failed to read cache at {path}: {source}")]
-    ReadCache { path: PathBuf, source: std::io::Error },
-    #[error("failed to parse cache at {path}: {source}")]
-    ParseCache { path: PathBuf, source: serde_json::Error },
-    #[error("failed to serialize cache: {0}")]
-    SerializeCache(serde_json::Error),
-    #[error("failed to write cache at {path}: {source}")]
-    WriteCache { path: PathBuf, source: std::io::Error },
 }
 
 #[cfg(test)]
