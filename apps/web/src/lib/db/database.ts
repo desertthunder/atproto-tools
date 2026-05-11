@@ -1,0 +1,99 @@
+import Dexie, { type EntityTable } from 'dexie';
+
+import { DB_NAME, DB_VERSION, actorFromProfile, graphSnapshotId, relationshipId } from './schema';
+
+import type { Did, ProfileView } from '$lib/types/api';
+import type {
+  CachedActor,
+  GraphRelationship,
+  GraphSnapshot,
+  GraphSnapshotKind,
+  GraphSnapshotSource
+} from '$lib/types/db';
+
+export class AtprotoToolsDb extends Dexie {
+  actors!: EntityTable<CachedActor, 'did'>;
+  graphSnapshots!: EntityTable<GraphSnapshot, 'id'>;
+  relationships!: EntityTable<GraphRelationship, 'id'>;
+
+  constructor() {
+    super(DB_NAME);
+
+    this.version(DB_VERSION).stores({
+      actors: '&did, handle, updatedAt',
+      graphSnapshots: '&id, [actor+kind], actor, kind, fetchedAt',
+      relationships: '&id, [sourceDid+targetDid], sourceDid, targetDid, updatedAt'
+    });
+  }
+}
+
+export const db = new AtprotoToolsDb();
+
+export const cacheActors = async (profiles: ProfileView[]) => {
+  const updatedAt = new Date().toISOString();
+  await db.actors.bulkPut(profiles.map((profile) => actorFromProfile(profile, updatedAt)));
+};
+
+export const cacheFollowing = async (sourceDid: Did, profiles: ProfileView[]) => {
+  const updatedAt = new Date().toISOString();
+  const relationships = profiles.map((profile) => {
+    return {
+      id: relationshipId(sourceDid, profile.did),
+      indexedAt: profile.indexedAt,
+      sourceDid,
+      targetDid: profile.did,
+      updatedAt
+    } satisfies GraphRelationship;
+  });
+
+  await db.transaction('rw', db.actors, db.relationships, async () => {
+    await cacheActors(profiles);
+    await db.relationships.bulkPut(relationships);
+  });
+};
+
+export const cacheFollowers = async (targetDid: Did, profiles: ProfileView[]) => {
+  const updatedAt = new Date().toISOString();
+  const relationships = profiles.map((profile) => {
+    return {
+      id: relationshipId(profile.did, targetDid),
+      indexedAt: profile.indexedAt,
+      sourceDid: profile.did,
+      targetDid,
+      updatedAt
+    } satisfies GraphRelationship;
+  });
+
+  await db.transaction('rw', db.actors, db.relationships, async () => {
+    await cacheActors(profiles);
+    await db.relationships.bulkPut(relationships);
+  });
+};
+
+export const cacheGraphSnapshot = async ({
+  actor,
+  dids,
+  kind,
+  source
+}: {
+  actor: Did | string;
+  dids: Did[];
+  kind: GraphSnapshotKind;
+  source: GraphSnapshotSource;
+}) => {
+  const snapshot: GraphSnapshot = {
+    actor,
+    dids,
+    fetchedAt: new Date().toISOString(),
+    id: graphSnapshotId(actor, kind),
+    kind,
+    source
+  };
+
+  await db.graphSnapshots.put(snapshot);
+  return snapshot;
+};
+
+export const getGraphSnapshot = (actor: Did | string, kind: GraphSnapshotKind) => {
+  return db.graphSnapshots.get(graphSnapshotId(actor, kind));
+};
