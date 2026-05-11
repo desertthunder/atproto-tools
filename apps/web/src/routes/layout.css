@@ -2,6 +2,7 @@
 @import '@fontsource-variable/google-sans-code';
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
+@plugin '@egoist/tailwindcss-icons';
 
 @theme {
   --font-sans: 'Google Sans Variable', sans-serif;

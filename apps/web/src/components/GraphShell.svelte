@@ -8,40 +8,80 @@
   import ProfilePanel from './ProfilePanel.svelte';
   import TopBar from './TopBar.svelte';
 
-  import type { SocialGraphNodeData, SocialGraphStats } from '$lib/types/social-graph';
+  import { GRAPH_FETCH_LIMITS, loadSocialGraph } from '$lib/graph/load';
+  import type { GraphFetchLimit } from '$lib/types/db';
+  import type { SocialGraph, SocialGraphNodeData, SocialGraphStats } from '$lib/types/social-graph';
 
   type FilterType = 'all' | 'following' | 'followers' | 'mutual';
 
-  let handle = $state('@jay.bsky.social');
+  let handle = $state('desertthunder.dev');
+  let limit = $state<GraphFetchLimit>(5);
+  let graph = $state.raw<SocialGraph | null>(null);
   let loaded = $state(false);
   let loading = $state(false);
+  let loadingMessage = $state('Fetching social graph...');
+  let errorMessage = $state<string | null>(null);
   let filter = $state<FilterType>('all');
   let selectedUser = $state<SocialGraphNodeData | null>(null);
   let stats = $state<SocialGraphStats>({ edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 });
 
-  const loadGraph = () => {
+  const loadGraph = async (forceRefresh = false) => {
     loading = true;
     loaded = false;
+    errorMessage = null;
+    loadingMessage = forceRefresh ? 'Refreshing social graph...' : 'Checking graph cache...';
     selectedUser = null;
 
-    window.setTimeout(() => {
-      loading = false;
+    try {
+      graph = await loadSocialGraph({
+        actor: handle,
+        forceRefresh,
+        limit,
+        onProgress: (progress) => {
+          loadingMessage = progress.message;
+        }
+      });
+
       loaded = true;
-    }, 450);
+    } catch (error) {
+      graph = null;
+      errorMessage = error instanceof Error ? error.message : 'Unable to load this graph.';
+    } finally {
+      loading = false;
+    }
   };
 </script>
 
 <main class="relative h-screen overflow-hidden bg-black text-blue-50">
   <GraphViewport
+    {graph}
     {loaded}
     activeFilter={filter}
     onNodeSelect={(user) => (selectedUser = user)}
     onStatsChange={(nextStats) => (stats = nextStats)} />
-  <EmptyState visible={!loaded && !loading} />
-  <LoadingOverlay visible={loading} />
+  <EmptyState
+    visible={!loaded && !loading}
+    title={errorMessage ? 'Graph unavailable' : 'No graph loaded'}
+    subtitle={errorMessage ?? 'Enter a Bluesky handle and press Load'} />
+  <LoadingOverlay visible={loading} message={loadingMessage} />
 
   <div class="pointer-events-none relative z-10 h-screen">
-    <TopBar {handle} {loading} onHandleInput={(value) => (handle = value)} onLoad={loadGraph} />
+    <TopBar
+      {handle}
+      {limit}
+      limits={GRAPH_FETCH_LIMITS}
+      {loading}
+      lastFetchedAt={graph?.fetchedAt}
+      source={graph?.source}
+      onForceRefresh={() => loadGraph(true)}
+      onHandleInput={(value) => (handle = value)}
+      onLimitChange={(value) => {
+        limit = value;
+        loaded = false;
+        graph = null;
+        selectedUser = null;
+      }}
+      onLoad={() => loadGraph(false)} />
 
     <div class="absolute top-15 right-5 flex w-70 flex-col items-end gap-3">
       <ProfilePanel profile={selectedUser} onClose={() => (selectedUser = null)} />
@@ -61,6 +101,7 @@
       edges={stats.edges}
       following={stats.following}
       followers={stats.followers}
-      mutuals={stats.mutuals} />
+      mutuals={stats.mutuals}
+      truncated={graph?.truncated} />
   </div>
 </main>

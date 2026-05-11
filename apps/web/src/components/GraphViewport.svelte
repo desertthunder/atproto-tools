@@ -1,7 +1,8 @@
 <script lang="ts">
   import { layoutSocialGraph } from '$lib/graph/layout';
-  import { getSocialGraphStats, sampleSocialEdges, sampleSocialNodes } from '$lib/graph/sample';
+  import { getSocialGraphStats } from '$lib/graph/stats';
   import type {
+    SocialGraph,
     SocialGraphEdge,
     SocialGraphFilter,
     SocialGraphNode,
@@ -16,12 +17,13 @@
 
   type Props = {
     activeFilter?: SocialGraphFilter;
+    graph?: SocialGraph | null;
     loaded?: boolean;
     onNodeSelect?: (data: SocialGraphNodeData) => void;
     onStatsChange?: (stats: SocialGraphStats) => void;
   };
 
-  let { activeFilter = 'all', loaded = false, onNodeSelect, onStatsChange }: Props = $props();
+  let { activeFilter = 'all', graph = null, loaded = false, onNodeSelect, onStatsChange }: Props = $props();
 
   let nodes = $state.raw<SocialGraphNode[]>([]);
   let edges = $state.raw<SocialGraphEdge[]>([]);
@@ -32,7 +34,7 @@
   const edgeTypes: EdgeTypes = { floating: FloatingEdge };
 
   $effect(() => {
-    if (!loaded) {
+    if (!loaded || !graph) {
       layoutRun += 1;
       nodes = [];
       edges = [];
@@ -41,18 +43,18 @@
 
     const currentRun = (layoutRun += 1);
 
-    layoutSocialGraph(sampleSocialNodes, sampleSocialEdges).then((nextNodes) => {
+    layoutSocialGraph(graph.nodes, graph.edges).then((nextNodes) => {
       if (currentRun !== layoutRun) return;
 
       layoutedNodes = nextNodes;
-      setVisibleGraph(nextNodes, activeFilter);
+      setVisibleGraph(nextNodes, graph.edges, activeFilter);
     });
   });
 
   $effect(() => {
-    if (!loaded || layoutedNodes.length === 0) return;
+    if (!loaded || !graph || layoutedNodes.length === 0) return;
 
-    setVisibleGraph(layoutedNodes, activeFilter);
+    setVisibleGraph(layoutedNodes, graph.edges, activeFilter);
   });
 
   const nodeColor = (node: { data: Record<string, unknown> }) => {
@@ -66,13 +68,17 @@
     onNodeSelect?.(node.data);
   };
 
-  const setVisibleGraph = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
+  const setVisibleGraph = (
+    sourceNodes: SocialGraphNode[],
+    sourceEdges: SocialGraphEdge[],
+    filter: SocialGraphFilter
+  ) => {
     const nextNodes = filterNodes(sourceNodes, filter);
-    const nextEdges = filterEdges(sampleSocialEdges, sourceNodes, filter);
+    const nextEdges = filterEdges(sourceEdges, sourceNodes, filter);
 
     nodes = nextNodes;
     edges = nextEdges;
-    onStatsChange?.(getSocialGraphStats(nextNodes, nextEdges));
+    onStatsChange?.(getSocialGraphStats(nextNodes, nextEdges, graph ?? undefined));
   };
 
   const filterNodes = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {

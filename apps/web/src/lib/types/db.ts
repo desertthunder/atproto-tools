@@ -2,6 +2,7 @@ import type { Did } from './api';
 
 export type GraphSnapshotKind = 'followers' | 'following' | 'mutuals';
 export type GraphSnapshotSource = 'bluesky' | 'constellation' | 'derived';
+export type GraphFetchLimit = 5 | 10 | 25 | 50;
 
 export type CachedActor = {
   avatar?: string;
@@ -17,9 +18,11 @@ export type GraphRelationship = { id: string; indexedAt?: string; sourceDid: Did
 
 export type GraphSnapshot = {
   actor: Did | string;
+  complete: boolean;
   dids: Did[];
   fetchedAt: string;
   id: string;
   kind: GraphSnapshotKind;
+  limit: GraphFetchLimit;
   source: GraphSnapshotSource;
 };

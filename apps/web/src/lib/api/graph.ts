@@ -7,6 +7,14 @@ import type { Did, GraphFetchOptions, GraphPage, MutualsOptions, ProfileView } f
 const FOLLOW_SOURCE = 'app.bsky.graph.follow:subject' as const;
 const MAX_PAGE_SIZE = 100;
 
+export const fetchActorProfile = async ({
+  actor,
+  fetch
+}: Pick<GraphFetchOptions, 'actor' | 'fetch'>): Promise<ProfileView> => {
+  const client = createBlueskyClient({ fetch });
+  return ok(client.get('app.bsky.actor.getProfile', { params: { actor } }));
+};
+
 export const fetchFollowingPage = async ({
   actor,
   cursor,

@@ -1,5 +1,7 @@
 import { MarkerType } from '@xyflow/svelte';
 
+import { getSocialGraphStats } from './stats';
+
 import type {
   SocialGraphEdge,
   SocialGraphNode,
@@ -108,15 +110,7 @@ export const sampleSocialEdges: SocialGraphEdge[] = [
   edge('bnewbold-pfrazee', 'bnewbold', 'pfrazee', 'mutual')
 ];
 
-export const getSocialGraphStats = (nodes: SocialGraphNode[], edges: SocialGraphEdge[]): SocialGraphStats => {
-  return {
-    edges: edges.length,
-    followers: count(nodes, 'follower'),
-    following: count(nodes, 'following'),
-    mutuals: count(nodes, 'mutual'),
-    nodes: nodes.length
-  };
-};
+export { getSocialGraphStats };
 
 function edge(
   id: string,
@@ -141,7 +135,3 @@ function edgeColor(relationship: Exclude<SocialGraphRelationship, 'origin'>) {
   if (relationship === 'following') return 'rgb(147 197 253 / 0.82)';
   return 'rgb(37 99 235 / 0.86)';
 }
-
-const count = (nodes: SocialGraphNode[], relationship: SocialGraphRelationship) => {
-  return nodes.filter((node) => node.data.relationship === relationship).length;
-};

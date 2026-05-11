@@ -5,6 +5,7 @@ import { DB_NAME, DB_VERSION, actorFromProfile, graphSnapshotId, relationshipId 
 import type { Did, ProfileView } from '$lib/types/api';
 import type {
   CachedActor,
+  GraphFetchLimit,
   GraphRelationship,
   GraphSnapshot,
   GraphSnapshotKind,
@@ -19,9 +20,15 @@ export class AtprotoToolsDb extends Dexie {
   constructor() {
     super(DB_NAME);
 
-    this.version(DB_VERSION).stores({
+    this.version(1).stores({
       actors: '&did, handle, updatedAt',
       graphSnapshots: '&id, [actor+kind], actor, kind, fetchedAt',
+      relationships: '&id, [sourceDid+targetDid], sourceDid, targetDid, updatedAt'
+    });
+
+    this.version(DB_VERSION).stores({
+      actors: '&did, handle, updatedAt',
+      graphSnapshots: '&id, [actor+kind+limit], actor, kind, limit, fetchedAt',
       relationships: '&id, [sourceDid+targetDid], sourceDid, targetDid, updatedAt'
     });
   }
@@ -72,21 +79,27 @@ export const cacheFollowers = async (targetDid: Did, profiles: ProfileView[]) =>
 
 export const cacheGraphSnapshot = async ({
   actor,
+  complete,
   dids,
   kind,
+  limit,
   source
 }: {
   actor: Did | string;
+  complete: boolean;
   dids: Did[];
   kind: GraphSnapshotKind;
+  limit: GraphFetchLimit;
   source: GraphSnapshotSource;
 }) => {
   const snapshot: GraphSnapshot = {
     actor,
+    complete,
     dids,
     fetchedAt: new Date().toISOString(),
-    id: graphSnapshotId(actor, kind),
+    id: graphSnapshotId(actor, kind, limit),
     kind,
+    limit,
     source
   };
 
@@ -94,6 +107,15 @@ export const cacheGraphSnapshot = async ({
   return snapshot;
 };
 
-export const getGraphSnapshot = (actor: Did | string, kind: GraphSnapshotKind) => {
-  return db.graphSnapshots.get(graphSnapshotId(actor, kind));
+export const getGraphSnapshot = (actor: Did | string, kind: GraphSnapshotKind, limit: GraphFetchLimit) => {
+  return db.graphSnapshots.get(graphSnapshotId(actor, kind, limit));
+};
+
+export const getCachedActorByHandle = (handle: string) => {
+  return db.actors.where('handle').equals(handle).first();
+};
+
+export const getCachedActors = async (dids: Did[]) => {
+  const actors = await db.actors.bulkGet(dids);
+  return new Map(actors.filter((actor): actor is CachedActor => Boolean(actor)).map((actor) => [actor.did, actor]));
 };
