@@ -1,2 +1,15 @@
+@import '@fontsource-variable/google-sans';
+@import '@fontsource-variable/google-sans-code';
 @import 'tailwindcss';
 @plugin '@tailwindcss/forms';
+
+@theme {
+  --font-sans: 'Google Sans Variable', sans-serif;
+  --font-mono: 'Google Sans Code Variable', monospace;
+}
+
+html,
+body {
+  min-height: 100%;
+  background: #000;
+}

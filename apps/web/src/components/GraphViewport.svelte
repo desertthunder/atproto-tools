@@ -1,0 +1,222 @@
+<script lang="ts">
+  import { layoutSocialGraph } from '$lib/graph/layout';
+  import { getSocialGraphStats, sampleSocialEdges, sampleSocialNodes } from '$lib/graph/sample';
+  import type {
+    SocialGraphEdge,
+    SocialGraphFilter,
+    SocialGraphNode,
+    SocialGraphNodeData,
+    SocialGraphStats
+  } from '$lib/types/social-graph';
+  import { Background, BackgroundVariant, MiniMap, SvelteFlow, type EdgeTypes, type NodeTypes } from '@xyflow/svelte';
+  import '@xyflow/svelte/dist/style.css';
+  import FloatingEdge from './FloatingEdge.svelte';
+  import OriginControls from './OriginControls.svelte';
+  import UserNode from './UserNode.svelte';
+
+  type Props = {
+    activeFilter?: SocialGraphFilter;
+    loaded?: boolean;
+    onNodeSelect?: (data: SocialGraphNodeData) => void;
+    onStatsChange?: (stats: SocialGraphStats) => void;
+  };
+
+  let { activeFilter = 'all', loaded = false, onNodeSelect, onStatsChange }: Props = $props();
+
+  let nodes = $state.raw<SocialGraphNode[]>([]);
+  let edges = $state.raw<SocialGraphEdge[]>([]);
+  let layoutedNodes = $state.raw<SocialGraphNode[]>([]);
+  let layoutRun = 0;
+
+  const nodeTypes: NodeTypes = { user: UserNode };
+  const edgeTypes: EdgeTypes = { floating: FloatingEdge };
+
+  $effect(() => {
+    if (!loaded) {
+      layoutRun += 1;
+      nodes = [];
+      edges = [];
+      return;
+    }
+
+    const currentRun = (layoutRun += 1);
+
+    layoutSocialGraph(sampleSocialNodes, sampleSocialEdges).then((nextNodes) => {
+      if (currentRun !== layoutRun) return;
+
+      layoutedNodes = nextNodes;
+      setVisibleGraph(nextNodes, activeFilter);
+    });
+  });
+
+  $effect(() => {
+    if (!loaded || layoutedNodes.length === 0) return;
+
+    setVisibleGraph(layoutedNodes, activeFilter);
+  });
+
+  const nodeColor = (node: { data: Record<string, unknown> }) => {
+    if (node.data.relationship === 'origin') return 'rgb(37 99 235)';
+    if (node.data.relationship === 'mutual') return 'rgb(59 130 246)';
+    if (node.data.relationship === 'following') return 'rgb(96 165 250)';
+    return 'rgb(30 64 175)';
+  };
+
+  const handleNodeClick = ({ node }: { node: SocialGraphNode }) => {
+    onNodeSelect?.(node.data);
+  };
+
+  const setVisibleGraph = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
+    const nextNodes = filterNodes(sourceNodes, filter);
+    const nextEdges = filterEdges(sampleSocialEdges, sourceNodes, filter);
+
+    nodes = nextNodes;
+    edges = nextEdges;
+    onStatsChange?.(getSocialGraphStats(nextNodes, nextEdges));
+  };
+
+  const filterNodes = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
+    return sourceNodes.filter((node) => shouldShowRelationship(node.data.relationship, filter));
+  };
+
+  const filterEdges = (sourceEdges: SocialGraphEdge[], sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
+    const visibleIds = new Set(filterNodes(sourceNodes, filter).map((node) => node.id));
+
+    return sourceEdges.filter((edge) => {
+      return visibleIds.has(edge.source) && visibleIds.has(edge.target) && shouldShowEdge(edge, filter);
+    });
+  };
+
+  const shouldShowEdge = (edge: SocialGraphEdge, filter: SocialGraphFilter) => {
+    if (filter === 'all') return true;
+    if (filter === 'followers') return edge.data?.relationship === 'follower';
+    return edge.data?.relationship === filter;
+  };
+
+  const shouldShowRelationship = (relationship: SocialGraphNodeData['relationship'], filter: SocialGraphFilter) => {
+    if (relationship === 'origin' || filter === 'all') return true;
+    if (filter === 'followers') return relationship === 'follower';
+    return relationship === filter;
+  };
+</script>
+
+<div class="absolute inset-0 overflow-hidden bg-black text-blue-50">
+  <div
+    class="absolute inset-0 bg-[radial-gradient(circle_at_48%_42%,rgba(29,78,216,0.26),transparent_30%),radial-gradient(circle_at_78%_22%,rgba(37,99,235,0.14),transparent_22%),linear-gradient(180deg,#020617_0%,#000_44%,#020617_100%)]">
+  </div>
+  <div
+    class="absolute inset-0 bg-[linear-gradient(rgba(37,99,235,0.095)_1px,transparent_1px),linear-gradient(90deg,rgba(37,99,235,0.075)_1px,transparent_1px)] bg-size-[56px_56px] opacity-55">
+  </div>
+  <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_35%,rgba(0,0,0,0.92)_100%)]"></div>
+  <div class="absolute inset-x-0 top-0 h-px bg-blue-500/60"></div>
+
+  {#if loaded}
+    <SvelteFlow
+      bind:nodes
+      bind:edges
+      {edgeTypes}
+      {nodeTypes}
+      fitView
+      fitViewOptions={{ padding: 0.28, minZoom: 0.55, maxZoom: 1.05 }}
+      nodeOrigin={[0.5, 0.5]}
+      minZoom={0.3}
+      maxZoom={1.6}
+      nodesConnectable={false}
+      defaultMarkerColor="rgb(59 130 246 / 0.92)"
+      noDragClass="nodrag"
+      noWheelClass="nowheel"
+      onnodeclick={handleNodeClick}
+      colorMode="dark"
+      colorModeSSR="dark"
+      class="social-flow">
+      <Background
+        variant={BackgroundVariant.Lines}
+        gap={56}
+        lineWidth={1}
+        bgColor="rgb(0 0 0)"
+        patternColor="rgb(37 99 235 / 0.18)" />
+      <OriginControls />
+      <MiniMap
+        position="bottom-right"
+        width={140}
+        height={86}
+        class="graph-minimap"
+        {nodeColor}
+        nodeStrokeColor="rgb(96 165 250 / 0.9)"
+        nodeBorderRadius={8}
+        bgColor="rgb(0 0 0)"
+        maskColor="rgb(15 23 42 / 0.62)"
+        pannable
+        zoomable />
+    </SvelteFlow>
+  {/if}
+</div>
+
+<style>
+  :global(.social-flow) {
+    --xy-background-color: rgb(0 0 0);
+    --xy-background-color-props: rgb(0 0 0);
+    --xy-minimap-background-color: rgb(0 0 0);
+    --xy-minimap-mask-background-color: rgb(15 23 42 / 0.62);
+    --xy-node-background-color: rgb(0 0 0);
+    --xy-node-color: rgb(239 246 255);
+    --xy-controls-button-background-color: rgb(0 0 0);
+    --xy-controls-button-background-color-hover: rgb(23 37 84);
+    --xy-controls-button-border-color: rgb(30 64 175);
+    --xy-controls-button-color: rgb(147 197 253);
+    --xy-controls-button-color-hover: rgb(239 246 255);
+    --xy-edge-label-background-color: rgb(0 0 0);
+    background: rgb(0 0 0) !important;
+  }
+
+  :global(.social-flow .svelte-flow__pane),
+  :global(.social-flow .svelte-flow__renderer),
+  :global(.social-flow .svelte-flow__viewport),
+  :global(.social-flow .svelte-flow__nodes),
+  :global(.social-flow .svelte-flow__edges) {
+    background: transparent !important;
+  }
+
+  :global(.social-flow .svelte-flow__background) {
+    background-color: rgb(0 0 0) !important;
+  }
+
+  :global(.social-flow .svelte-flow__attribution) {
+    display: none;
+  }
+
+  :global(.social-flow .svelte-flow__edge-path) {
+    stroke-linecap: round;
+    filter: drop-shadow(0 0 5px rgb(37 99 235 / 0.3));
+  }
+
+  :global(.social-flow .svelte-flow__controls) {
+    overflow: hidden;
+    border: 1px solid rgb(37 99 235);
+    border-radius: 8px;
+    background: rgb(0 0 0);
+    box-shadow:
+      0 0 0 1px rgb(0 0 0),
+      0 16px 40px rgb(0 0 0 / 0.45),
+      0 0 22px rgb(37 99 235 / 0.22);
+  }
+
+  :global(.social-flow .svelte-flow__controls-button) {
+    border-bottom-color: rgb(30 64 175);
+  }
+
+  :global(.social-flow .svelte-flow__minimap) {
+    overflow: hidden;
+    border: 1px solid rgb(37 99 235);
+    border-radius: 8px;
+    box-shadow:
+      0 0 0 1px rgb(0 0 0),
+      0 16px 40px rgb(0 0 0 / 0.45),
+      0 0 22px rgb(37 99 235 / 0.2);
+  }
+
+  :global(.social-flow .graph-minimap) {
+    right: 1.25rem !important;
+    bottom: 9.75rem !important;
+  }
+</style>
