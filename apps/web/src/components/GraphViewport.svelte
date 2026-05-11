@@ -71,6 +71,7 @@
     if (node.data.relationship === 'origin') return SOCIAL_GRAPH_COLORS.origin;
     if (node.data.relationship === 'mutuals') return SOCIAL_GRAPH_COLORS.mutuals;
     if (node.data.relationship === 'following') return SOCIAL_GRAPH_COLORS.following;
+    if (node.data.relationship === 'second-hop') return SOCIAL_GRAPH_COLORS['second-hop'];
     return SOCIAL_GRAPH_COLORS.follower;
   };
 
@@ -85,7 +86,7 @@
     mode: SocialGraphAvatarMode
   ) => {
     const nextNodes = filterNodes(sourceNodes, filter, mode);
-    const nextEdges = filterEdges(sourceEdges, sourceNodes, filter);
+    const nextEdges = filterEdges(sourceEdges, nextNodes);
 
     nodes = nextNodes;
     edges = nextEdges;
@@ -98,24 +99,17 @@
       .map((node) => ({ ...node, data: { ...node.data, avatarMode: mode } }));
   };
 
-  const filterEdges = (sourceEdges: SocialGraphEdge[], sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
-    const visibleIds = new Set(
-      sourceNodes.filter((node) => shouldShowRelationship(node.data.relationship, filter)).map((node) => node.id)
-    );
+  const filterEdges = (sourceEdges: SocialGraphEdge[], visibleNodes: SocialGraphNode[]) => {
+    const visibleIds = new Set(visibleNodes.map((node) => node.id));
 
     return sourceEdges.filter((edge) => {
-      return visibleIds.has(edge.source) && visibleIds.has(edge.target) && shouldShowEdge(edge, filter);
+      return visibleIds.has(edge.source) && visibleIds.has(edge.target);
     });
-  };
-
-  const shouldShowEdge = (edge: SocialGraphEdge, filter: SocialGraphFilter) => {
-    if (filter === 'all') return true;
-    if (filter === 'followers') return edge.data?.relationship === 'follower';
-    return edge.data?.relationship === filter;
   };
 
   const shouldShowRelationship = (relationship: SocialGraphNodeData['relationship'], filter: SocialGraphFilter) => {
     if (relationship === 'origin' || filter === 'all') return true;
+    if (relationship === 'second-hop') return true;
     if (filter === 'followers') return relationship === 'follower';
     return relationship === filter;
   };

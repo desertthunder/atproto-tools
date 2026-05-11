@@ -9,7 +9,8 @@
     { label: 'Origin', tone: 'bg-sky-500 shadow-[0_0_8px_rgba(14,165,233,0.85)]' },
     { label: 'Following', tone: 'bg-rose-500 shadow-[0_0_8px_rgba(244,63,94,0.75)]' },
     { label: 'Followers', tone: 'bg-blue-700 shadow-[0_0_8px_rgba(29,78,216,0.8)]' },
-    { label: 'Mutual', tone: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.75)]' }
+    { label: 'Mutual', tone: 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.75)]' },
+    { label: 'Second Hop', tone: 'bg-indigo-500 shadow-[0_0_8px_rgba(99,102,241,0.75)]' }
   ];
 </script>
 

@@ -4,7 +4,8 @@ const relationshipOptions = {
   follower: { ringColor: '1d4ed8', seed: 'FOLLOWER' },
   following: { ringColor: 'f43f5e', seed: 'FOLLOWING' },
   mutuals: { ringColor: '10b981', seed: 'MUTUAL' },
-  origin: { ringColor: '0ea5e9', seed: 'ORIGIN' }
+  origin: { ringColor: '0ea5e9', seed: 'ORIGIN' },
+  'second-hop': { ringColor: '6366f1', seed: 'SECOND_HOP' }
 } as const;
 
 export const prerender = true;

@@ -40,7 +40,11 @@
   };
 
   const fetchedLabel = $derived(lastFetchedAt ? formatFetchedAt(lastFetchedAt) : null);
-  const cacheLabel = $derived(source === 'cache' ? 'Cache' : source === 'network' ? 'Fresh' : null);
+  const cacheLabel = $derived.by(() => {
+    if (source === 'cache') return 'Cache';
+    if (source === 'network') return 'Fresh';
+    return null;
+  });
 
   const parseLimit = (value: string): GraphFetchLimit => {
     const nextLimit = Number(value);

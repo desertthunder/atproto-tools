@@ -27,14 +27,16 @@
     follower: 'bg-blue-700',
     following: 'bg-rose-500',
     mutuals: 'bg-emerald-500',
-    origin: 'bg-sky-500'
+    origin: 'bg-sky-500',
+    'second-hop': 'bg-indigo-500'
   };
 
   const borderClasses = {
     follower: 'border-blue-900',
     following: 'border-blue-900',
     mutuals: 'border-blue-900',
-    origin: 'border-sky-500'
+    origin: 'border-sky-500',
+    'second-hop': 'border-indigo-900'
   };
 
   const fallbackToRing = (event: Event) => {

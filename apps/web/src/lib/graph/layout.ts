@@ -20,7 +20,8 @@ const NODE_RADIUS = Math.hypot(SOCIAL_NODE_WIDTH, SOCIAL_NODE_HEIGHT) / 2;
 const relationshipArcs = {
   follower: { end: 210, radius: 430, start: 150 },
   following: { end: 30, radius: 430, start: -30 },
-  mutuals: { end: -52, radius: 345, start: -128 }
+  mutuals: { end: -52, radius: 345, start: -128 },
+  'second-hop': { end: 330, radius: 570, start: 210 }
 } satisfies Record<Exclude<SocialGraphRelationship, 'origin'>, GraphArcConfig>;
 
 const radiusForRelationship = (relationship: SocialGraphRelationship) => {
@@ -96,7 +97,7 @@ export const layoutSocialGraph = async (nodes: SocialGraphNode[], edges: SocialG
 const getInitialPositions = (nodes: SocialGraphNode[], originId: string) => {
   const positions = new Map<string, { x: number; y: number }>([[originId, { x: 0, y: 0 }]]);
 
-  for (const relationship of ['follower', 'following', 'mutuals'] as const) {
+  for (const relationship of ['follower', 'following', 'mutuals', 'second-hop'] as const) {
     const group = nodes.filter((node) => node.id !== originId && node.data.relationship === relationship);
     const arc = relationshipArcs[relationship];
 

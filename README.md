@@ -1,7 +1,7 @@
-# AT-Protocol Tools
+# AT Protocol Tools
 
 A set of tools for working with ATmosphere/AT Protocol powered apps, all around a unified,
-clap + owo-colors, posix-compliant CLI.
+clap + owo-colors, posix-compliant CLI, and some browser stuff.
 
 ## Config
 
@@ -61,9 +61,12 @@ Fetch followed accounts and each account's latest original post. Results include
 
 ### Project Structure
 
-Simple CLI + shared Core crate structure, with separate crates for each app.
+Simple CLI + shared Core crate structure, plus a static web graph app.
 
 ```sh
+apps
+  └── web       # SvelteKit social graph visualizer
+
 crates
   ├── cli       # Binary entrypoint
   ├── core      # Shared code (Client & Config Management)
@@ -74,14 +77,14 @@ crates
   └── leaflet
 ```
 
-### Margin (at.margin.* NSID namespace)
+### Margin (at.margin.\* NSID namespace)
 
 Download highlights and notes, and construct a local graph of activity, as well, as build
 a markdown file of all highlights and notes (for a specific page).
 
-### Semble (network.cosmik.* NSID namespace)
+### Semble (network.cosmik.\* NSID namespace)
 
-### Leaflet (site.standard.\* + pub.leaflet.* NSID namespaces)
+### Leaflet (site.standard.\* + pub.leaflet.\* NSID namespaces)
 
 ### Tangled
 
@@ -90,7 +93,7 @@ produce markdown files for strings (TODO).
 
 For repos and issues, we want to generate task lists (TODO).
 
-### BlueSky (app.bsky.* NSID namespace)
+### BlueSky (app.bsky.\* NSID namespace)
 
 Fetches and analyzes data from the public Bluesky API (`public.api.bsky.app`).
 
@@ -103,3 +106,10 @@ Results include handle, DID, profile URL, last post timestamp, and last post URL
 
 Reports are cached as JSON under `~/.cache/atproto-tools/bsky-follows/`, keyed with a
 SHA-256 hash of the actor's DID, handle, follows count.
+
+### BlueSky Social Graph Visualizer
+
+The web app in `apps/web` is a static SvelteKit social graph visualizer
+for Bluesky accounts. Enter a handle to map followers, following, mutuals,
+relationships between rendered nodes, and optional second-hop expansions while
+keeping the graph shareable through normal routes and query params.

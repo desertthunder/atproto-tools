@@ -3,9 +3,11 @@ import { ok } from '@atcute/client';
 import { createBlueskyClient, createConstellationClient } from './clients';
 
 import type { Did, GraphFetchOptions, GraphPage, MutualsOptions, ProfileView } from '$lib/types/api';
+import type { RenderedGraphRelationship } from '$lib/types/graph';
 
 const FOLLOW_SOURCE = 'app.bsky.graph.follow:subject' as const;
 const MAX_PAGE_SIZE = 100;
+const RENDERED_RELATIONSHIP_CONCURRENCY = 4;
 
 export const fetchActorProfile = async ({
   actor,
@@ -93,6 +95,46 @@ export const findMutualDidsWithConstellation = async ({
   }
 
   return [...mutuals];
+};
+
+export const fetchRenderedRelationshipsWithConstellation = async ({
+  fetch,
+  sourceDids,
+  targetDids
+}: {
+  fetch?: typeof globalThis.fetch;
+  sourceDids: Did[];
+  targetDids: Did[];
+}): Promise<RenderedGraphRelationship[]> => {
+  if (sourceDids.length === 0 || targetDids.length === 0) {
+    return [];
+  }
+
+  const client = createConstellationClient({ fetch });
+  const relationships = new Map<string, RenderedGraphRelationship>();
+
+  for (const targets of chunk(targetDids, RENDERED_RELATIONSHIP_CONCURRENCY)) {
+    await Promise.all(
+      targets.map(async (targetDid) => {
+        for (const dids of chunk(sourceDids, MAX_PAGE_SIZE)) {
+          const data = await ok(
+            client.get('blue.microcosm.links.getBacklinks', {
+              params: { did: dids, limit: clampLimit(dids.length), source: FOLLOW_SOURCE, subject: targetDid }
+            })
+          );
+
+          for (const record of data.records) {
+            if (record.did === targetDid) continue;
+
+            const relationship = { sourceDid: record.did, targetDid } satisfies RenderedGraphRelationship;
+            relationships.set(`${relationship.sourceDid}->${relationship.targetDid}`, relationship);
+          }
+        }
+      })
+    );
+  }
+
+  return [...relationships.values()];
 };
 
 export const fetchMutualProfiles = async (options: GraphFetchOptions & { actorDid: Did }): Promise<ProfileView[]> => {

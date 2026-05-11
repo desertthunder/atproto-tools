@@ -2,7 +2,7 @@ import type { Did } from './api';
 
 export type GraphSnapshotKind = 'followers' | 'following' | 'mutuals';
 export type GraphSnapshotSource = 'bluesky' | 'constellation' | 'derived';
-export type GraphFetchLimit = 5 | 10 | 25 | 50;
+export type GraphFetchLimit = 3 | 5 | 10;
 
 export type CachedActor = {
   avatar?: string;

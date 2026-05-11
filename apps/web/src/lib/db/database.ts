@@ -77,6 +77,23 @@ export const cacheFollowers = async (targetDid: Did, profiles: ProfileView[]) =>
   });
 };
 
+export const cacheRelationships = async (relationships: Array<Pick<GraphRelationship, 'sourceDid' | 'targetDid'>>) => {
+  if (relationships.length === 0) return;
+
+  const updatedAt = new Date().toISOString();
+
+  await db.relationships.bulkPut(
+    relationships.map((relationship) => {
+      return {
+        id: relationshipId(relationship.sourceDid, relationship.targetDid),
+        sourceDid: relationship.sourceDid,
+        targetDid: relationship.targetDid,
+        updatedAt
+      } satisfies GraphRelationship;
+    })
+  );
+};
+
 export const cacheGraphSnapshot = async ({
   actor,
   complete,
@@ -118,4 +135,16 @@ export const getCachedActorByHandle = (handle: string) => {
 export const getCachedActors = async (dids: Did[]) => {
   const actors = await db.actors.bulkGet(dids);
   return new Map(actors.filter((actor): actor is CachedActor => Boolean(actor)).map((actor) => [actor.did, actor]));
+};
+
+export const getCachedRelationshipsBetween = async (sourceDids: Did[], targetDids: Did[]) => {
+  if (sourceDids.length === 0 || targetDids.length === 0) return [];
+
+  const targetSet = new Set(targetDids);
+
+  return db.relationships
+    .where('sourceDid')
+    .anyOf(sourceDids)
+    .filter((relationship) => targetSet.has(relationship.targetDid))
+    .toArray();
 };

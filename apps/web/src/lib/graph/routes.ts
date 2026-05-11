@@ -9,6 +9,23 @@ const filterSegments: Record<SocialGraphFilter, string> = {
 
 export const normalizeGraphHandle = (handle: string) => handle.trim().replace(/^@/, '');
 
+export const parseSecondHopHandles = (value: string | null) => {
+  if (!value) return [];
+
+  const handles = new Set<string>();
+
+  for (const handle of value.split(',')) {
+    const normalized = normalizeGraphHandle(handle).toLowerCase();
+    if (normalized) handles.add(normalized);
+  }
+
+  return [...handles];
+};
+
+export const serializeSecondHopHandles = (handles: string[]) => {
+  return handles.map((handle) => normalizeGraphHandle(handle).toLowerCase()).join(',');
+};
+
 export const socialGraphPath = (handle: string, filter: SocialGraphFilter) => {
   const normalized = normalizeGraphHandle(handle);
   if (!normalized) return '/';

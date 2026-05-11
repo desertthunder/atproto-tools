@@ -9,8 +9,14 @@
   import TopBar from './TopBar.svelte';
 
   import { goto } from '$app/navigation';
-  import { GRAPH_FETCH_LIMITS, loadSocialGraph } from '$lib/graph/load';
-  import { normalizeGraphHandle, socialGraphPath } from '$lib/graph/routes';
+  import { page } from '$app/state';
+  import { GRAPH_FETCH_LIMITS, expandSocialGraph, loadSocialGraph } from '$lib/graph/load';
+  import {
+    normalizeGraphHandle,
+    parseSecondHopHandles,
+    serializeSecondHopHandles,
+    socialGraphPath
+  } from '$lib/graph/routes';
   import type { GraphFetchLimit } from '$lib/types/db';
   import type {
     SocialGraph,
@@ -19,6 +25,7 @@
     SocialGraphNodeData,
     SocialGraphStats
   } from '$lib/types/social-graph';
+  import { untrack } from 'svelte';
 
   type Props = { activeFilter?: SocialGraphFilter; initialHandle?: string };
 
@@ -32,33 +39,77 @@
   let loadingMessage = $state('Fetching social graph...');
   let errorMessage = $state<string | null>(null);
   let avatarMode = $state<SocialGraphAvatarMode>('rings');
-  let routedHandle = $state<string | null>(null);
+  let syncedBaseKey = $state('');
+  let appliedSecondHopHandles = $state<string[]>([]);
+  let syncRun = 0;
   let selectedUser = $state<SocialGraphNodeData | null>(null);
   let stats = $state<SocialGraphStats>({ edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 });
 
-  const loadGraph = async (forceRefresh = false) => {
+  const secondHopHandles = $derived(parseSecondHopHandles(page.url.searchParams.get('hop')));
+
+  const syncCurrentRoute = async (
+    nextHandle: string,
+    nextSecondHopHandles: string[],
+    nextLimit: GraphFetchLimit,
+    forceRefresh = false
+  ) => {
+    const normalizedHandle = normalizeGraphHandle(nextHandle).toLowerCase();
+    const nextBaseKey = `${normalizedHandle}:${nextLimit}`;
+    const shouldReloadBase =
+      forceRefresh ||
+      syncedBaseKey !== nextBaseKey ||
+      !graph ||
+      !loaded ||
+      !isSecondHopSubset(appliedSecondHopHandles, nextSecondHopHandles);
+
+    syncRun += 1;
+    const currentRun = syncRun;
+
+    if (!normalizedHandle) {
+      handle = '';
+      syncedBaseKey = '';
+      appliedSecondHopHandles = [];
+      resetGraph();
+      return;
+    }
+
     loading = true;
-    loaded = false;
     errorMessage = null;
-    loadingMessage = forceRefresh ? 'Refreshing social graph...' : 'Checking graph cache...';
-    selectedUser = null;
+    let nextGraph = graph;
 
     try {
-      graph = await loadSocialGraph({
-        actor: handle,
-        forceRefresh,
-        limit,
-        onProgress: (progress) => {
-          loadingMessage = progress.message;
-        }
-      });
+      if (shouldReloadBase) {
+        loaded = false;
+        selectedUser = null;
+        loadingMessage = forceRefresh ? 'Refreshing social graph...' : 'Checking graph cache...';
+        nextGraph = await loadSocialGraph({
+          actor: normalizedHandle,
+          forceRefresh,
+          limit: nextLimit,
+          onProgress: (progress) => {
+            loadingMessage = progress.message;
+          }
+        });
 
+        if (currentRun !== syncRun) return;
+
+        graph = nextGraph;
+        syncedBaseKey = nextBaseKey;
+        appliedSecondHopHandles = [];
+      }
+
+      if (!nextGraph) return;
+
+      nextGraph = await applySecondHops(nextGraph, nextSecondHopHandles, currentRun, nextLimit);
+      if (currentRun !== syncRun) return;
+
+      graph = nextGraph;
+      handle = normalizedHandle;
       loaded = true;
     } catch (error) {
-      graph = null;
       errorMessage = error instanceof Error ? error.message : 'Unable to load this graph.';
     } finally {
-      loading = false;
+      if (currentRun === syncRun) loading = false;
     }
   };
 
@@ -69,16 +120,36 @@
     stats = { edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 };
   };
 
-  const loadCurrentRoute = async () => {
-    const nextHandle = normalizeGraphHandle(initialHandle);
+  const applySecondHops = async (
+    sourceGraph: SocialGraph,
+    nextSecondHopHandles: string[],
+    currentRun: number,
+    nextLimit: GraphFetchLimit
+  ) => {
+    let nextGraph = sourceGraph;
+    let appliedHandles = [...appliedSecondHopHandles];
+    const originHandle = normalizeGraphHandle(nextGraph.actor.handle).toLowerCase();
 
-    if (routedHandle === nextHandle) return;
+    for (const secondHopHandle of nextSecondHopHandles) {
+      if (currentRun !== syncRun) return nextGraph;
+      if (secondHopHandle === originHandle || appliedHandles.includes(secondHopHandle)) continue;
 
-    routedHandle = nextHandle;
-    handle = nextHandle;
-    resetGraph();
+      loadingMessage = `Fetching second hop for @${secondHopHandle}...`;
+      nextGraph = await expandSocialGraph({
+        actor: secondHopHandle,
+        graph: nextGraph,
+        limit: nextLimit,
+        onProgress: (progress) => {
+          loadingMessage = progress.message;
+        }
+      });
 
-    if (nextHandle) await loadGraph(false);
+      appliedHandles = [...appliedHandles, secondHopHandle];
+      appliedSecondHopHandles = appliedHandles;
+      graph = nextGraph;
+    }
+
+    return nextGraph;
   };
 
   const loadFromInput = async () => {
@@ -87,16 +158,49 @@
 
     if (!nextHandle) return;
 
-    if (nextHandle !== routedHandle) {
+    if (nextHandle.toLowerCase() !== normalizeGraphHandle(initialHandle).toLowerCase()) {
       await goto(nextPath);
       return;
     }
 
-    await loadGraph(false);
+    await syncCurrentRoute(nextHandle, secondHopHandles, limit);
+  };
+
+  const addSecondHop = async (profile: SocialGraphNodeData) => {
+    if (profile.relationship === 'origin') return;
+
+    const nextHandle = normalizeGraphHandle(profile.handle).toLowerCase();
+    const handles = parseSecondHopHandles(page.url.searchParams.get('hop'));
+    if (handles.includes(nextHandle)) return;
+
+    await goto(secondHopUrl([...handles, nextHandle]), { keepFocus: true, noScroll: true });
+  };
+
+  const secondHopUrl = (handles: string[]) => {
+    const url = new URL(page.url);
+    const value = serializeSecondHopHandles(handles);
+    const params = [...url.searchParams.entries()]
+      .filter(([key]) => key !== 'hop')
+      .map(([key, paramValue]) => `${encodeURIComponent(key)}=${encodeURIComponent(paramValue)}`);
+
+    if (value) params.push(`hop=${value}`);
+
+    const query = params.join('&');
+    return `${url.pathname}${query ? `?${query}` : ''}${url.hash}`;
+  };
+
+  const isSecondHopSubset = (appliedHandles: string[], nextHandles: string[]) => {
+    return appliedHandles.every((handle) => nextHandles.includes(handle));
   };
 
   $effect(() => {
-    void loadCurrentRoute();
+    const nextHandle = initialHandle;
+    const nextLimit = limit;
+    const nextSecondHopHandles = secondHopHandles;
+
+    untrack(() => {
+      void syncCurrentRoute(nextHandle, nextSecondHopHandles, nextLimit);
+    });
   });
 </script>
 
@@ -124,16 +228,21 @@
       lastFetchedAt={graph?.fetchedAt}
       source={graph?.source}
       onAvatarModeChange={(mode) => (avatarMode = mode)}
-      onForceRefresh={() => loadGraph(true)}
+      onForceRefresh={() => void syncCurrentRoute(initialHandle, secondHopHandles, limit, true)}
       onHandleInput={(value) => (handle = value)}
       onLimitChange={(value) => {
         limit = value;
-        resetGraph();
       }}
       onLoad={() => void loadFromInput()} />
 
     <div class="absolute top-15 right-5 flex w-70 flex-col items-end gap-3">
-      <ProfilePanel profile={selectedUser} {avatarMode} onClose={() => (selectedUser = null)} />
+      <ProfilePanel
+        profile={selectedUser}
+        {avatarMode}
+        {loading}
+        {secondHopHandles}
+        onClose={() => (selectedUser = null)}
+        onFetchSecondHop={(profile) => void addSecondHop(profile)} />
       <ConnectionFilter visible={loaded} active={activeFilter} {handle} onSelect={() => (selectedUser = null)} />
     </div>
 
