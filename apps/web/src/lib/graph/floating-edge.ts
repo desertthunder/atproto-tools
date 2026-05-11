@@ -1,17 +1,7 @@
 import { Position, type InternalNode, type Node, type XYPosition } from '@xyflow/svelte';
 
 import { SOCIAL_NODE_HEIGHT, SOCIAL_NODE_WIDTH } from '$lib/graph/layout';
-
-type NodeBox = XYPosition & { height: number; width: number };
-
-export type FloatingEdgeParams = {
-  sourcePosition: Position;
-  sourceX: number;
-  sourceY: number;
-  targetPosition: Position;
-  targetX: number;
-  targetY: number;
-};
+import type { FloatingEdgeParams, GraphNodeBox } from '$lib/types/graph';
 
 export const getFloatingEdgeParams = <NodeType extends Node>(
   sourceNode: InternalNode<NodeType>,
@@ -32,7 +22,7 @@ export const getFloatingEdgeParams = <NodeType extends Node>(
   };
 };
 
-const getNodeBox = <NodeType extends Node>(node: InternalNode<NodeType>): NodeBox => {
+const getNodeBox = <NodeType extends Node>(node: InternalNode<NodeType>): GraphNodeBox => {
   const width = node.measured.width ?? node.width ?? node.initialWidth ?? SOCIAL_NODE_WIDTH;
   const height = node.measured.height ?? node.height ?? node.initialHeight ?? SOCIAL_NODE_HEIGHT;
   const position = node.internals.positionAbsolute ?? {
@@ -43,9 +33,9 @@ const getNodeBox = <NodeType extends Node>(node: InternalNode<NodeType>): NodeBo
   return { ...position, width, height };
 };
 
-const getNodeCenter = (box: NodeBox): XYPosition => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
+const getNodeCenter = (box: GraphNodeBox): XYPosition => ({ x: box.x + box.width / 2, y: box.y + box.height / 2 });
 
-const getNodeIntersection = (source: NodeBox, target: NodeBox): XYPosition => {
+const getNodeIntersection = (source: GraphNodeBox, target: GraphNodeBox): XYPosition => {
   const sourceCenter = getNodeCenter(source);
   const targetCenter = getNodeCenter(target);
   const deltaX = targetCenter.x - sourceCenter.x;
@@ -60,7 +50,7 @@ const getNodeIntersection = (source: NodeBox, target: NodeBox): XYPosition => {
   return { x: sourceCenter.x + deltaX * scale, y: sourceCenter.y + deltaY * scale };
 };
 
-const getEdgePosition = (box: NodeBox, point: XYPosition) => {
+const getEdgePosition = (box: GraphNodeBox, point: XYPosition) => {
   const roundedX = Math.round(point.x);
   const roundedY = Math.round(point.y);
 

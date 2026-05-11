@@ -8,20 +8,24 @@
   import ProfilePanel from './ProfilePanel.svelte';
   import TopBar from './TopBar.svelte';
 
+  import { goto } from '$app/navigation';
   import { GRAPH_FETCH_LIMITS, loadSocialGraph } from '$lib/graph/load';
+  import { normalizeGraphHandle, socialGraphPath } from '$lib/graph/routes';
   import type { GraphFetchLimit } from '$lib/types/db';
-  import type { SocialGraph, SocialGraphNodeData, SocialGraphStats } from '$lib/types/social-graph';
+  import type { SocialGraph, SocialGraphFilter, SocialGraphNodeData, SocialGraphStats } from '$lib/types/social-graph';
 
-  type FilterType = 'all' | 'following' | 'followers' | 'mutual';
+  type Props = { activeFilter?: SocialGraphFilter; initialHandle?: string };
 
-  let handle = $state('desertthunder.dev');
+  let { activeFilter = 'all', initialHandle = '' }: Props = $props();
+
+  let handle = $state('');
   let limit = $state<GraphFetchLimit>(5);
   let graph = $state.raw<SocialGraph | null>(null);
   let loaded = $state(false);
   let loading = $state(false);
   let loadingMessage = $state('Fetching social graph...');
   let errorMessage = $state<string | null>(null);
-  let filter = $state<FilterType>('all');
+  let routedHandle = $state<string | null>(null);
   let selectedUser = $state<SocialGraphNodeData | null>(null);
   let stats = $state<SocialGraphStats>({ edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 });
 
@@ -50,13 +54,50 @@
       loading = false;
     }
   };
+
+  const resetGraph = () => {
+    loaded = false;
+    graph = null;
+    selectedUser = null;
+    stats = { edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 };
+  };
+
+  const loadCurrentRoute = async () => {
+    const nextHandle = normalizeGraphHandle(initialHandle);
+
+    if (routedHandle === nextHandle) return;
+
+    routedHandle = nextHandle;
+    handle = nextHandle;
+    resetGraph();
+
+    if (nextHandle) await loadGraph(false);
+  };
+
+  const loadFromInput = async () => {
+    const nextHandle = normalizeGraphHandle(handle);
+    const nextPath = socialGraphPath(nextHandle, activeFilter);
+
+    if (!nextHandle) return;
+
+    if (nextHandle !== routedHandle) {
+      await goto(nextPath);
+      return;
+    }
+
+    await loadGraph(false);
+  };
+
+  $effect(() => {
+    void loadCurrentRoute();
+  });
 </script>
 
 <main class="relative h-screen overflow-hidden bg-black text-blue-50">
   <GraphViewport
     {graph}
     {loaded}
-    activeFilter={filter}
+    {activeFilter}
     onNodeSelect={(user) => (selectedUser = user)}
     onStatsChange={(nextStats) => (stats = nextStats)} />
   <EmptyState
@@ -77,21 +118,13 @@
       onHandleInput={(value) => (handle = value)}
       onLimitChange={(value) => {
         limit = value;
-        loaded = false;
-        graph = null;
-        selectedUser = null;
+        resetGraph();
       }}
-      onLoad={() => loadGraph(false)} />
+      onLoad={() => void loadFromInput()} />
 
     <div class="absolute top-15 right-5 flex w-70 flex-col items-end gap-3">
       <ProfilePanel profile={selectedUser} onClose={() => (selectedUser = null)} />
-      <ConnectionFilter
-        visible={loaded}
-        active={filter}
-        onSelect={(value) => {
-          filter = value;
-          selectedUser = null;
-        }} />
+      <ConnectionFilter visible={loaded} active={activeFilter} {handle} onSelect={() => (selectedUser = null)} />
     </div>
 
     <GraphLegend visible={loaded} />

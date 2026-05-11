@@ -14,10 +14,13 @@
       (from profile data) or
 
     ```text
-    https://api.dicebear.com/9.x/rings/svg?seed={handle}
+    https://api.dicebear.com/9.x/rings/svg?seed={MUTUAL|FOLLOWER|FOLLOWING}&color={GREEN|BLUE|ROSE}
     ```
 
+  - We should download these images at build time, since they're deterministic.
   - Rings should be default (because they're cool)
+  - Defaults to rings, toggle in the top-bar to show avatars instead.
+    - if available, use onerror to fallback to rings
 - [ ] An about page
 - [ ] Use icons
 - [ ] Select a user and shift origin to that user
@@ -36,3 +39,18 @@
 - [ ] Paging (we start at 5, and warn the user about potentially lags
       as we go further along the map)
 - [ ] [Typeahead](https://typeahead.waow.tech/)/autocomplete search
+- [ ] OG-Image
+
+    ```text
+    Svelte component
+        ↓ render()
+    HTML string
+        ↓ satori-html
+    Satori node
+        ↓ satori
+    SVG string
+        ↓ resvg
+    PNG response
+        ↓ SvelteKit prerender
+    static /og.png
+    ```

@@ -1,5 +1,4 @@
 import { MarkerType } from '@xyflow/svelte';
-
 import { fetchActorProfile, fetchFollowersPage, fetchFollowingPage } from '$lib/api/graph';
 import {
   cacheActors,
@@ -11,7 +10,14 @@ import {
   getGraphSnapshot
 } from '$lib/db/database';
 import type { Did, ProfileView } from '$lib/types/api';
-import type { CachedActor, GraphFetchLimit, GraphSnapshot } from '$lib/types/db';
+import type { GraphFetchLimit, GraphSnapshot } from '$lib/types/db';
+import type {
+  GraphActorRecord,
+  GraphLoadOptions,
+  GraphLoadProgress,
+  GraphRelationship,
+  GraphRelationshipFetchResult
+} from '$lib/types/graph';
 import type {
   SocialGraph,
   SocialGraphEdge,
@@ -19,27 +25,11 @@ import type {
   SocialGraphNodeData,
   SocialGraphRelationship
 } from '$lib/types/social-graph';
+import { SOCIAL_GRAPH_EDGE_COLORS } from './colors';
 
 export const GRAPH_FETCH_LIMITS = [5, 10, 25, 50] as const;
 
 const DEFAULT_LIMIT = 5 satisfies GraphFetchLimit;
-
-type ActorRecord = CachedActor | ProfileView;
-type Relationship = Exclude<SocialGraphRelationship, 'origin'>;
-
-export type GraphLoadProgress = {
-  count?: number;
-  message: string;
-  phase: 'cache' | 'followers' | 'following' | 'profile';
-};
-
-export type GraphLoadOptions = {
-  actor: string;
-  fetch?: typeof globalThis.fetch;
-  forceRefresh?: boolean;
-  limit?: GraphFetchLimit;
-  onProgress?: (progress: GraphLoadProgress) => void;
-};
 
 export const loadSocialGraph = async ({
   actor,
@@ -168,7 +158,7 @@ const fetchLimitedRelationships = async ({
   kind: 'followers' | 'following';
   limit: GraphFetchLimit;
   onProgress?: (progress: GraphLoadProgress) => void;
-}) => {
+}): Promise<GraphRelationshipFetchResult> => {
   const dids: Did[] = [];
   let cursor: string | undefined;
 
@@ -199,7 +189,7 @@ const buildSocialGraph = async ({
   mutualDids,
   source
 }: {
-  actor: ActorRecord;
+  actor: GraphActorRecord;
   fetchedAt?: string;
   followersDids: Did[];
   followingDids: Did[];
@@ -280,14 +270,14 @@ const getRelationship = (
   followingSet: Set<Did>,
   followerSet: Set<Did>,
   mutualSet: Set<Did>
-): Relationship => {
+): GraphRelationship => {
   if (mutualSet.has(did)) return 'mutual';
   if (followingSet.has(did)) return 'following';
   if (followerSet.has(did)) return 'follower';
   return 'follower';
 };
 
-const createRelationshipEdge = (originDid: Did, did: Did, relationship: Relationship): SocialGraphEdge => {
+const createRelationshipEdge = (originDid: Did, did: Did, relationship: GraphRelationship): SocialGraphEdge => {
   const source = relationship === 'follower' ? did : originDid;
   const target = relationship === 'follower' ? originDid : did;
 
@@ -297,13 +287,13 @@ const createRelationshipEdge = (originDid: Did, did: Did, relationship: Relation
     source,
     target,
     data: { relationship },
-    markerEnd: { type: MarkerType.Arrow },
+    markerEnd: { type: MarkerType.Arrow, color: edgeColor(relationship) },
     style: `stroke:${edgeColor(relationship)};stroke-width:${relationship === 'mutual' ? '2' : '1.65'}`,
     animated: relationship === 'mutual'
   };
 };
 
-const actorToNodeData = (actor: ActorRecord, relationship: SocialGraphRelationship): SocialGraphNodeData => {
+const actorToNodeData = (actor: GraphActorRecord, relationship: SocialGraphRelationship): SocialGraphNodeData => {
   const name = actor.displayName || actor.handle || actor.did;
 
   return {
@@ -332,10 +322,8 @@ const normalizeActorIdentifier = (actor: string) => actor.trim().replace(/^@/, '
 
 const isDid = (actor: string): actor is Did => actor.startsWith('did:');
 
-const edgeColor = (relationship: Relationship) => {
-  if (relationship === 'mutual') return 'rgb(96 165 250 / 0.95)';
-  if (relationship === 'following') return 'rgb(147 197 253 / 0.82)';
-  return 'rgb(37 99 235 / 0.86)';
+const edgeColor = (relationship: GraphRelationship) => {
+  return SOCIAL_GRAPH_EDGE_COLORS[relationship];
 };
 
 const formatCount = (count: number) => new Intl.NumberFormat().format(count);

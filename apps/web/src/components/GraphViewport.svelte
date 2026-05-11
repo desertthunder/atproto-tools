@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { SOCIAL_GRAPH_COLORS } from '$lib/graph/colors';
   import { layoutSocialGraph } from '$lib/graph/layout';
   import { getSocialGraphStats } from '$lib/graph/stats';
   import type {
@@ -58,10 +59,10 @@
   });
 
   const nodeColor = (node: { data: Record<string, unknown> }) => {
-    if (node.data.relationship === 'origin') return 'rgb(37 99 235)';
-    if (node.data.relationship === 'mutual') return 'rgb(59 130 246)';
-    if (node.data.relationship === 'following') return 'rgb(96 165 250)';
-    return 'rgb(30 64 175)';
+    if (node.data.relationship === 'origin') return SOCIAL_GRAPH_COLORS.origin;
+    if (node.data.relationship === 'mutual') return SOCIAL_GRAPH_COLORS.mutual;
+    if (node.data.relationship === 'following') return SOCIAL_GRAPH_COLORS.following;
+    return SOCIAL_GRAPH_COLORS.follower;
   };
 
   const handleNodeClick = ({ node }: { node: SocialGraphNode }) => {
@@ -128,7 +129,7 @@
       minZoom={0.3}
       maxZoom={1.6}
       nodesConnectable={false}
-      defaultMarkerColor="rgb(59 130 246 / 0.92)"
+      defaultMarkerColor={SOCIAL_GRAPH_COLORS.origin}
       noDragClass="nodrag"
       noWheelClass="nowheel"
       onnodeclick={handleNodeClick}
@@ -148,7 +149,7 @@
         height={86}
         class="graph-minimap"
         {nodeColor}
-        nodeStrokeColor="rgb(96 165 250 / 0.9)"
+        nodeStrokeColor={nodeColor}
         nodeBorderRadius={8}
         bgColor="rgb(0 0 0)"
         maskColor="rgb(15 23 42 / 0.62)"

@@ -1,7 +1,6 @@
 <script lang="ts">
-  import { Handle, Position, type NodeProps } from '@xyflow/svelte';
-
   import type { SocialGraphNode } from '$lib/types/social-graph';
+  import { Handle, Position, type NodeProps } from '@xyflow/svelte';
 
   let {
     data,
@@ -19,6 +18,20 @@
       .join('')
       .toUpperCase()
   );
+
+  const accentClasses = {
+    follower: 'bg-blue-700',
+    following: 'bg-rose-500',
+    mutual: 'bg-emerald-500',
+    origin: 'bg-sky-500'
+  };
+
+  const borderClasses = {
+    follower: 'border-blue-900',
+    following: 'border-blue-900',
+    mutual: 'border-blue-900',
+    origin: 'border-sky-500'
+  };
 </script>
 
 <Handle
@@ -31,24 +44,10 @@
 
 <article
   class={`relative w-65 overflow-hidden rounded-lg border bg-black shadow-[0_18px_48px_rgba(0,0,0,0.52),0_0_24px_rgba(37,99,235,0.18)] transition ${
-    selected
-      ? 'border-blue-300 ring-2 ring-blue-500/45'
-      : data.relationship === 'origin'
-        ? 'border-blue-500'
-        : 'border-blue-900'
+    selected ? 'border-blue-300 ring-2 ring-blue-500/45' : borderClasses[data.relationship]
   }`}>
   <div class="absolute inset-x-0 top-0 h-px bg-blue-400/80"></div>
-  <div
-    class={`absolute inset-y-0 left-0 w-1 ${
-      data.relationship === 'origin'
-        ? 'bg-blue-500'
-        : data.relationship === 'mutual'
-          ? 'bg-blue-400'
-          : data.relationship === 'following'
-            ? 'bg-blue-300'
-            : 'bg-blue-700'
-    }`}>
-  </div>
+  <div class={`absolute inset-y-0 left-0 w-1 ${accentClasses[data.relationship]}`}></div>
 
   <div class="flex items-center gap-3 p-3 pl-4">
     <div
@@ -70,16 +69,7 @@
         @{data.handle.replace(/^@/, '')}
       </a>
       <div class="mt-2 flex items-center gap-1.5">
-        <span
-          class={`h-1.5 w-1.5 rounded-full ${
-            data.relationship === 'origin'
-              ? 'bg-blue-500'
-              : data.relationship === 'mutual'
-                ? 'bg-blue-400'
-                : data.relationship === 'following'
-                  ? 'bg-blue-200'
-                  : 'bg-blue-700'
-          }`}></span>
+        <span class={`h-1.5 w-1.5 rounded-full ${accentClasses[data.relationship]}`}></span>
         <span class="font-mono text-[10px] tracking-[0.08em] text-blue-200/60 uppercase">{data.relationship}</span>
       </div>
     </div>

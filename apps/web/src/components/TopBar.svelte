@@ -78,17 +78,22 @@
         }} />
     </div>
 
-    <label class="sr-only" for="graph-limit">Relationship limit</label>
-    <select
-      id="graph-limit"
-      class="h-9 rounded-md border border-blue-900 bg-black px-2.5 font-mono text-[12px] text-blue-100 transition outline-none hover:border-blue-700 focus:border-blue-500"
-      value={limit}
-      disabled={loading}
-      onchange={(event) => onLimitChange?.(parseLimit(event.currentTarget.value))}>
-      {#each limits as option (option)}
-        <option value={option}>{option}</option>
-      {/each}
-    </select>
+    <div class="relative h-9 w-18 shrink-0">
+      <label class="sr-only" for="graph-limit">Relationship limit</label>
+      <select
+        id="graph-limit"
+        class="h-9 w-full appearance-none rounded-md border border-blue-900 bg-black py-0 pr-7 pl-3 font-mono text-[12px] leading-9 text-blue-100 tabular-nums transition-colors outline-none hover:border-blue-700 focus:border-blue-500 disabled:cursor-wait disabled:border-blue-950 disabled:text-blue-200/35"
+        value={limit}
+        disabled={loading}
+        onchange={(event) => onLimitChange?.(parseLimit(event.currentTarget.value))}>
+        {#each limits as option (option)}
+          <option value={option}>{option}</option>
+        {/each}
+      </select>
+      <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-blue-200/55">
+        <i class="i-tabler-chevron-down"></i>
+      </span>
+    </div>
 
     <button
       type="submit"

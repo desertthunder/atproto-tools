@@ -6,6 +6,13 @@
   let { onClose, profile = null }: Props = $props();
 
   const profileHref = $derived(profile ? `https://bsky.app/profile/${profile.handle.replace(/^@/, '')}` : '');
+
+  const accentClasses = {
+    follower: 'bg-blue-700',
+    following: 'bg-rose-500',
+    mutual: 'bg-emerald-500',
+    origin: 'bg-sky-500'
+  };
 </script>
 
 {#if profile}
@@ -41,7 +48,7 @@
     <div class="p-4">
       <div class="mb-2 text-[10px] tracking-widest text-blue-200/40 uppercase">Relationship</div>
       <div class="flex items-center gap-2 font-mono text-xs text-blue-100/70">
-        <span class="h-1.5 w-1.5 rounded-full bg-blue-400"></span>
+        <span class={`h-1.5 w-1.5 rounded-full ${accentClasses[profile.relationship]}`}></span>
         {profile.relationship}
       </div>
     </div>
