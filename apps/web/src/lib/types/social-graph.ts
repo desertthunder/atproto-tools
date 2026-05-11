@@ -2,11 +2,13 @@ import type { Edge, Node } from '@xyflow/svelte';
 
 import type { GraphFetchLimit } from './db';
 
-export type SocialGraphRelationship = 'origin' | 'following' | 'follower' | 'mutual';
-export type SocialGraphFilter = 'all' | 'following' | 'followers' | 'mutual';
+export type SocialGraphRelationship = 'origin' | 'following' | 'follower' | 'mutuals';
+export type SocialGraphFilter = 'all' | 'following' | 'followers' | 'mutuals';
+export type SocialGraphAvatarMode = 'avatars' | 'rings';
 
 export type SocialGraphNodeData = {
   [key: string]: unknown;
+  avatarMode?: SocialGraphAvatarMode;
   avatarUrl?: string;
   description?: string;
   displayName: string;

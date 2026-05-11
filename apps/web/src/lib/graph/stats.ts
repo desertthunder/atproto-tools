@@ -1,4 +1,10 @@
-import type { SocialGraph, SocialGraphEdge, SocialGraphNode, SocialGraphRelationship, SocialGraphStats } from '$lib/types/social-graph';
+import type {
+  SocialGraph,
+  SocialGraphEdge,
+  SocialGraphNode,
+  SocialGraphRelationship,
+  SocialGraphStats
+} from '$lib/types/social-graph';
 
 export const getSocialGraphStats = (
   nodes: SocialGraphNode[],
@@ -9,7 +15,7 @@ export const getSocialGraphStats = (
     edges: graph?.totalEdges ?? edges.length,
     followers: graph?.totalFollowers ?? count(nodes, 'follower'),
     following: graph?.totalFollowing ?? count(nodes, 'following'),
-    mutuals: graph?.totalMutuals ?? count(nodes, 'mutual'),
+    mutuals: graph?.totalMutuals ?? count(nodes, 'mutuals'),
     nodes: graph?.totalNodes ?? nodes.length
   };
 };

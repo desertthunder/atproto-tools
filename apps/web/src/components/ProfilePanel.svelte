@@ -1,17 +1,27 @@
 <script lang="ts">
-  import type { SocialGraphNodeData } from '$lib/types/social-graph';
+  import { base } from '$app/paths';
+  import type { SocialGraphAvatarMode, SocialGraphNodeData } from '$lib/types/social-graph';
 
-  type Props = { onClose?: () => void; profile?: SocialGraphNodeData | null };
+  type Props = { avatarMode?: SocialGraphAvatarMode; onClose?: () => void; profile?: SocialGraphNodeData | null };
 
-  let { onClose, profile = null }: Props = $props();
+  let { avatarMode = 'rings', onClose, profile = null }: Props = $props();
 
   const profileHref = $derived(profile ? `https://bsky.app/profile/${profile.handle.replace(/^@/, '')}` : '');
+  const ringAvatarUrl = $derived(profile ? `${base}/dicebear/rings/${profile.relationship}.svg` : '');
+  const shouldShowProfileAvatar = $derived(profile?.relationship === 'origin' || avatarMode === 'avatars');
+  const avatarSrc = $derived(shouldShowProfileAvatar && profile?.avatarUrl ? profile.avatarUrl : ringAvatarUrl);
 
   const accentClasses = {
     follower: 'bg-blue-700',
     following: 'bg-rose-500',
-    mutual: 'bg-emerald-500',
+    mutuals: 'bg-emerald-500',
     origin: 'bg-sky-500'
+  };
+
+  const fallbackToRing = (event: Event) => {
+    if (event.currentTarget instanceof HTMLImageElement) {
+      event.currentTarget.src = ringAvatarUrl;
+    }
   };
 </script>
 
@@ -25,11 +35,7 @@
         aria-label="Close profile panel">×</button>
       <div
         class="mb-2.5 grid h-12 w-12 place-items-center overflow-hidden rounded-md border border-blue-900 bg-linear-to-br from-blue-300 via-blue-500 to-blue-900 text-xl font-bold text-white">
-        {#if profile.avatarUrl}
-          <img class="h-full w-full object-cover" src={profile.avatarUrl} alt="" />
-        {:else}
-          {profile.displayName[0]}
-        {/if}
+        <img class="h-full w-full object-cover" src={avatarSrc} alt="" onerror={fallbackToRing} />
       </div>
       <div class="mb-0.5 text-[15px] font-bold text-blue-50">{profile.displayName}</div>
       <a

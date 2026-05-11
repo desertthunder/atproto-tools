@@ -4,6 +4,7 @@
   import { getSocialGraphStats } from '$lib/graph/stats';
   import type {
     SocialGraph,
+    SocialGraphAvatarMode,
     SocialGraphEdge,
     SocialGraphFilter,
     SocialGraphNode,
@@ -18,13 +19,21 @@
 
   type Props = {
     activeFilter?: SocialGraphFilter;
+    avatarMode?: SocialGraphAvatarMode;
     graph?: SocialGraph | null;
     loaded?: boolean;
     onNodeSelect?: (data: SocialGraphNodeData) => void;
     onStatsChange?: (stats: SocialGraphStats) => void;
   };
 
-  let { activeFilter = 'all', graph = null, loaded = false, onNodeSelect, onStatsChange }: Props = $props();
+  let {
+    activeFilter = 'all',
+    avatarMode = 'rings',
+    graph = null,
+    loaded = false,
+    onNodeSelect,
+    onStatsChange
+  }: Props = $props();
 
   let nodes = $state.raw<SocialGraphNode[]>([]);
   let edges = $state.raw<SocialGraphEdge[]>([]);
@@ -48,19 +57,19 @@
       if (currentRun !== layoutRun) return;
 
       layoutedNodes = nextNodes;
-      setVisibleGraph(nextNodes, graph.edges, activeFilter);
+      setVisibleGraph(nextNodes, graph.edges, activeFilter, avatarMode);
     });
   });
 
   $effect(() => {
     if (!loaded || !graph || layoutedNodes.length === 0) return;
 
-    setVisibleGraph(layoutedNodes, graph.edges, activeFilter);
+    setVisibleGraph(layoutedNodes, graph.edges, activeFilter, avatarMode);
   });
 
   const nodeColor = (node: { data: Record<string, unknown> }) => {
     if (node.data.relationship === 'origin') return SOCIAL_GRAPH_COLORS.origin;
-    if (node.data.relationship === 'mutual') return SOCIAL_GRAPH_COLORS.mutual;
+    if (node.data.relationship === 'mutuals') return SOCIAL_GRAPH_COLORS.mutuals;
     if (node.data.relationship === 'following') return SOCIAL_GRAPH_COLORS.following;
     return SOCIAL_GRAPH_COLORS.follower;
   };
@@ -72,9 +81,10 @@
   const setVisibleGraph = (
     sourceNodes: SocialGraphNode[],
     sourceEdges: SocialGraphEdge[],
-    filter: SocialGraphFilter
+    filter: SocialGraphFilter,
+    mode: SocialGraphAvatarMode
   ) => {
-    const nextNodes = filterNodes(sourceNodes, filter);
+    const nextNodes = filterNodes(sourceNodes, filter, mode);
     const nextEdges = filterEdges(sourceEdges, sourceNodes, filter);
 
     nodes = nextNodes;
@@ -82,12 +92,16 @@
     onStatsChange?.(getSocialGraphStats(nextNodes, nextEdges, graph ?? undefined));
   };
 
-  const filterNodes = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
-    return sourceNodes.filter((node) => shouldShowRelationship(node.data.relationship, filter));
+  const filterNodes = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter, mode: SocialGraphAvatarMode) => {
+    return sourceNodes
+      .filter((node) => shouldShowRelationship(node.data.relationship, filter))
+      .map((node) => ({ ...node, data: { ...node.data, avatarMode: mode } }));
   };
 
   const filterEdges = (sourceEdges: SocialGraphEdge[], sourceNodes: SocialGraphNode[], filter: SocialGraphFilter) => {
-    const visibleIds = new Set(filterNodes(sourceNodes, filter).map((node) => node.id));
+    const visibleIds = new Set(
+      sourceNodes.filter((node) => shouldShowRelationship(node.data.relationship, filter)).map((node) => node.id)
+    );
 
     return sourceEdges.filter((edge) => {
       return visibleIds.has(edge.source) && visibleIds.has(edge.target) && shouldShowEdge(edge, filter);

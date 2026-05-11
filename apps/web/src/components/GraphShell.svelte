@@ -12,7 +12,13 @@
   import { GRAPH_FETCH_LIMITS, loadSocialGraph } from '$lib/graph/load';
   import { normalizeGraphHandle, socialGraphPath } from '$lib/graph/routes';
   import type { GraphFetchLimit } from '$lib/types/db';
-  import type { SocialGraph, SocialGraphFilter, SocialGraphNodeData, SocialGraphStats } from '$lib/types/social-graph';
+  import type {
+    SocialGraph,
+    SocialGraphAvatarMode,
+    SocialGraphFilter,
+    SocialGraphNodeData,
+    SocialGraphStats
+  } from '$lib/types/social-graph';
 
   type Props = { activeFilter?: SocialGraphFilter; initialHandle?: string };
 
@@ -25,6 +31,7 @@
   let loading = $state(false);
   let loadingMessage = $state('Fetching social graph...');
   let errorMessage = $state<string | null>(null);
+  let avatarMode = $state<SocialGraphAvatarMode>('rings');
   let routedHandle = $state<string | null>(null);
   let selectedUser = $state<SocialGraphNodeData | null>(null);
   let stats = $state<SocialGraphStats>({ edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 });
@@ -98,6 +105,7 @@
     {graph}
     {loaded}
     {activeFilter}
+    {avatarMode}
     onNodeSelect={(user) => (selectedUser = user)}
     onStatsChange={(nextStats) => (stats = nextStats)} />
   <EmptyState
@@ -112,8 +120,10 @@
       {limit}
       limits={GRAPH_FETCH_LIMITS}
       {loading}
+      {avatarMode}
       lastFetchedAt={graph?.fetchedAt}
       source={graph?.source}
+      onAvatarModeChange={(mode) => (avatarMode = mode)}
       onForceRefresh={() => loadGraph(true)}
       onHandleInput={(value) => (handle = value)}
       onLimitChange={(value) => {
@@ -123,7 +133,7 @@
       onLoad={() => void loadFromInput()} />
 
     <div class="absolute top-15 right-5 flex w-70 flex-col items-end gap-3">
-      <ProfilePanel profile={selectedUser} onClose={() => (selectedUser = null)} />
+      <ProfilePanel profile={selectedUser} {avatarMode} onClose={() => (selectedUser = null)} />
       <ConnectionFilter visible={loaded} active={activeFilter} {handle} onSelect={() => (selectedUser = null)} />
     </div>
 

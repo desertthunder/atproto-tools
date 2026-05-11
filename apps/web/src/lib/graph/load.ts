@@ -271,7 +271,7 @@ const getRelationship = (
   followerSet: Set<Did>,
   mutualSet: Set<Did>
 ): GraphRelationship => {
-  if (mutualSet.has(did)) return 'mutual';
+  if (mutualSet.has(did)) return 'mutuals';
   if (followingSet.has(did)) return 'following';
   if (followerSet.has(did)) return 'follower';
   return 'follower';
@@ -288,8 +288,8 @@ const createRelationshipEdge = (originDid: Did, did: Did, relationship: GraphRel
     target,
     data: { relationship },
     markerEnd: { type: MarkerType.Arrow, color: edgeColor(relationship) },
-    style: `stroke:${edgeColor(relationship)};stroke-width:${relationship === 'mutual' ? '2' : '1.65'}`,
-    animated: relationship === 'mutual'
+    style: `stroke:${edgeColor(relationship)};stroke-width:${relationship === 'mutuals' ? '2' : '1.65'}`,
+    animated: relationship === 'mutuals'
   };
 };
 

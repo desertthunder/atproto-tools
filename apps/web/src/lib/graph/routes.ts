@@ -4,7 +4,7 @@ const filterSegments: Record<SocialGraphFilter, string> = {
   all: '',
   followers: 'follows',
   following: 'following',
-  mutual: 'mutual'
+  mutuals: 'mutuals'
 };
 
 export const normalizeGraphHandle = (handle: string) => handle.trim().replace(/^@/, '');

@@ -5,4 +5,4 @@
   let { params }: PageProps = $props();
 </script>
 
-<GraphShell initialHandle={params.handle} activeFilter="mutual" />
+<GraphShell initialHandle={params.handle} activeFilter="mutuals" />

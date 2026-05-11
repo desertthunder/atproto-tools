@@ -20,7 +20,7 @@ const NODE_RADIUS = Math.hypot(SOCIAL_NODE_WIDTH, SOCIAL_NODE_HEIGHT) / 2;
 const relationshipArcs = {
   follower: { end: 210, radius: 430, start: 150 },
   following: { end: 30, radius: 430, start: -30 },
-  mutual: { end: -52, radius: 345, start: -128 }
+  mutuals: { end: -52, radius: 345, start: -128 }
 } satisfies Record<Exclude<SocialGraphRelationship, 'origin'>, GraphArcConfig>;
 
 const radiusForRelationship = (relationship: SocialGraphRelationship) => {
@@ -29,7 +29,7 @@ const radiusForRelationship = (relationship: SocialGraphRelationship) => {
 };
 
 const linkDistanceForRelationship = (relationship: GraphForceLink['relationship']) => {
-  if (relationship === 'mutual') return 285;
+  if (relationship === 'mutuals') return 285;
   return 380;
 };
 
@@ -54,7 +54,7 @@ export const layoutSocialGraph = async (nodes: SocialGraphNode[], edges: SocialG
   const forceLinks: GraphForceLink[] = edges.map((edge) => ({
     source: edge.source,
     target: edge.target,
-    relationship: edge.data?.relationship ?? 'mutual'
+    relationship: edge.data?.relationship ?? 'mutuals'
   }));
 
   const simulation = forceSimulation(forceNodes)
@@ -96,7 +96,7 @@ export const layoutSocialGraph = async (nodes: SocialGraphNode[], edges: SocialG
 const getInitialPositions = (nodes: SocialGraphNode[], originId: string) => {
   const positions = new Map<string, { x: number; y: number }>([[originId, { x: 0, y: 0 }]]);
 
-  for (const relationship of ['follower', 'following', 'mutual'] as const) {
+  for (const relationship of ['follower', 'following', 'mutuals'] as const) {
     const group = nodes.filter((node) => node.id !== originId && node.data.relationship === relationship);
     const arc = relationshipArcs[relationship];
 

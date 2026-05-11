@@ -1,13 +1,15 @@
 <script lang="ts">
   import type { GraphFetchLimit } from '$lib/types/db';
-  import type { SocialGraphSource } from '$lib/types/social-graph';
+  import type { SocialGraphAvatarMode, SocialGraphSource } from '$lib/types/social-graph';
 
   type Props = {
+    avatarMode?: SocialGraphAvatarMode;
     handle: string;
     lastFetchedAt?: string;
     limit: GraphFetchLimit;
     limits: readonly GraphFetchLimit[];
     loading?: boolean;
+    onAvatarModeChange?: (mode: SocialGraphAvatarMode) => void;
     onForceRefresh?: () => void;
     onHandleInput?: (handle: string) => void;
     onLimitChange?: (limit: GraphFetchLimit) => void;
@@ -16,11 +18,13 @@
   };
 
   let {
+    avatarMode = 'rings',
     handle,
     lastFetchedAt,
     limit,
     limits,
     loading = false,
+    onAvatarModeChange,
     onForceRefresh,
     onHandleInput,
     onLimitChange,
@@ -42,6 +46,11 @@
     const nextLimit = Number(value);
     return limits.includes(nextLimit as GraphFetchLimit) ? (nextLimit as GraphFetchLimit) : limit;
   };
+
+  const avatarModeOptions: { icon: string; label: string; value: SocialGraphAvatarMode }[] = [
+    { icon: 'i-tabler-circle-dot', label: 'Rings', value: 'rings' },
+    { icon: 'i-tabler-user-circle', label: 'Avatars', value: 'avatars' }
+  ];
 </script>
 
 <header
@@ -93,6 +102,25 @@
       <span class="pointer-events-none absolute top-1/2 right-2.5 flex -translate-y-1/2 items-center text-blue-200/55">
         <i class="i-tabler-chevron-down"></i>
       </span>
+    </div>
+
+    <div class="flex h-9 overflow-hidden rounded-md border border-blue-900 bg-black">
+      {#each avatarModeOptions as option (option.value)}
+        <button
+          type="button"
+          class={`flex h-9 items-center gap-1.5 border-r border-blue-900 px-2.5 text-[12px] font-medium whitespace-nowrap transition-colors last:border-r-0 ${
+            avatarMode === option.value
+              ? 'bg-blue-600/25 text-blue-50'
+              : 'text-blue-200/55 hover:bg-blue-950/70 hover:text-blue-100'
+          }`}
+          aria-pressed={avatarMode === option.value}
+          onclick={() => onAvatarModeChange?.(option.value)}>
+          <span class="flex items-center">
+            <i class={option.icon}></i>
+          </span>
+          {option.label}
+        </button>
+      {/each}
     </div>
 
     <button

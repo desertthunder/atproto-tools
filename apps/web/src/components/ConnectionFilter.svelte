@@ -15,7 +15,7 @@
     { label: 'All', value: 'all' },
     { label: 'Following', value: 'following' },
     { label: 'Followers', value: 'followers' },
-    { label: 'Mutuals', value: 'mutual' }
+    { label: 'Mutuals', value: 'mutuals' }
   ];
 </script>
 

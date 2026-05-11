@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { base } from '$app/paths';
   import type { SocialGraphNode } from '$lib/types/social-graph';
   import { Handle, Position, type NodeProps } from '@xyflow/svelte';
 
@@ -10,6 +11,9 @@
   }: NodeProps<SocialGraphNode> = $props();
 
   const profileHref = $derived(`https://bsky.app/profile/${data.handle.replace(/^@/, '')}`);
+  const ringAvatarUrl = $derived(`${base}/dicebear/rings/${data.relationship}.svg`);
+  const shouldShowProfileAvatar = $derived(data.relationship === 'origin' || data.avatarMode === 'avatars');
+  const avatarSrc = $derived(shouldShowProfileAvatar && data.avatarUrl ? data.avatarUrl : ringAvatarUrl);
   const initials = $derived(
     data.displayName
       .split(/\s+/)
@@ -22,15 +26,21 @@
   const accentClasses = {
     follower: 'bg-blue-700',
     following: 'bg-rose-500',
-    mutual: 'bg-emerald-500',
+    mutuals: 'bg-emerald-500',
     origin: 'bg-sky-500'
   };
 
   const borderClasses = {
     follower: 'border-blue-900',
     following: 'border-blue-900',
-    mutual: 'border-blue-900',
+    mutuals: 'border-blue-900',
     origin: 'border-sky-500'
+  };
+
+  const fallbackToRing = (event: Event) => {
+    if (event.currentTarget instanceof HTMLImageElement) {
+      event.currentTarget.src = ringAvatarUrl;
+    }
   };
 </script>
 
@@ -52,11 +62,12 @@
   <div class="flex items-center gap-3 p-3 pl-4">
     <div
       class="grid h-12 w-12 shrink-0 place-items-center overflow-hidden rounded-md border border-blue-500/80 bg-blue-950 text-sm font-bold text-blue-100 shadow-[0_0_18px_rgba(37,99,235,0.35)]">
-      {#if data.avatarUrl}
-        <img class="h-full w-full object-cover" src={data.avatarUrl} alt="" loading="lazy" />
-      {:else}
-        {initials}
-      {/if}
+      <img
+        class="h-full w-full object-cover"
+        src={avatarSrc}
+        alt={data.avatarMode === 'avatars' ? initials : ''}
+        loading="lazy"
+        onerror={fallbackToRing} />
     </div>
 
     <div class="min-w-0 flex-1">
