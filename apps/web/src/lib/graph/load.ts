@@ -1,4 +1,3 @@
-import { MarkerType } from '@xyflow/svelte';
 import {
   fetchActorProfile,
   fetchFollowersPage,
@@ -34,7 +33,6 @@ import type {
   SocialGraphNodeData,
   SocialGraphRelationship
 } from '$lib/types/social-graph';
-import { SOCIAL_GRAPH_EDGE_COLORS } from './colors';
 
 export const GRAPH_FETCH_LIMITS = [3, 5, 10] as const;
 
@@ -357,7 +355,7 @@ const buildSocialGraph = async ({
   const selectedDids = selectRenderableDids({ followerSet, followingSet, mutualSet, limit });
   const actorMap = await getCachedActors(selectedDids);
   const actorData = actorToNodeData(actor, 'origin');
-  const nodes: SocialGraphNode[] = [{ id: actor.did, type: 'user', data: actorData, position: { x: 0, y: 0 } }];
+  const nodes: SocialGraphNode[] = [{ id: actor.did, data: actorData, position: { x: 0, y: 0 } }];
 
   const edges: SocialGraphEdge[] = [];
 
@@ -366,7 +364,7 @@ const buildSocialGraph = async ({
     if (!cachedActor) continue;
 
     const relationship = getRelationship(did, followingSet, followerSet, mutualSet);
-    nodes.push({ id: did, type: 'user', data: actorToNodeData(cachedActor, relationship), position: { x: 0, y: 0 } });
+    nodes.push({ id: did, data: actorToNodeData(cachedActor, relationship), position: { x: 0, y: 0 } });
     edges.push(createRelationshipEdge(actor.did, did, relationship));
   }
 
@@ -419,7 +417,7 @@ const mergeSecondHopGraph = async ({
   const expandedNodeIds: Did[] = [];
 
   if (!existingNodeIds.has(actorDid)) {
-    nodes.push({ id: actorDid, type: 'user', data: actorToNodeData(actor, 'second-hop'), position: sourcePosition });
+    nodes.push({ id: actorDid, data: actorToNodeData(actor, 'second-hop'), position: sourcePosition });
     existingNodeIds.add(actorDid);
     expandedNodeIds.push(actorDid);
   }
@@ -436,7 +434,6 @@ const mergeSecondHopGraph = async ({
 
     nodes.push({
       id: did,
-      type: 'user',
       data: actorToNodeData(cachedActor, 'second-hop'),
       position: { x: sourcePosition.x, y: sourcePosition.y }
     });
@@ -647,16 +644,7 @@ const createRelationshipEdge = (originDid: Did, did: Did, relationship: GraphRel
 };
 
 const createDirectedRelationshipEdge = (source: Did, target: Did, relationship: GraphRelationship): SocialGraphEdge => {
-  return {
-    id: `${source}->${target}`,
-    type: 'floating',
-    source,
-    target,
-    data: { relationship },
-    markerEnd: { type: MarkerType.Arrow, color: edgeColor(relationship) },
-    style: `stroke:${edgeColor(relationship)};stroke-width:${relationship === 'mutuals' ? '2' : '1.65'}`,
-    animated: relationship === 'mutuals'
-  };
+  return { id: `${source}->${target}`, source, target, data: { relationship } };
 };
 
 const relationshipId = (relationship: RenderedGraphRelationship) =>
@@ -697,10 +685,6 @@ const oldestFetchedAt = (snapshots: Array<{ fetchedAt?: string } | undefined>) =
 const normalizeActorIdentifier = (actor: string) => actor.trim().replace(/^@/, '').toLowerCase();
 
 const isDid = (actor: string): actor is Did => actor.startsWith('did:');
-
-const edgeColor = (relationship: GraphRelationship) => {
-  return SOCIAL_GRAPH_EDGE_COLORS[relationship];
-};
 
 const formatCount = (count: number) => new Intl.NumberFormat().format(count);
 

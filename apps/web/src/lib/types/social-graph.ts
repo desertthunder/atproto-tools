@@ -1,5 +1,3 @@
-import type { Edge, Node } from '@xyflow/svelte';
-
 import type { Did } from './api';
 import type { GraphFetchLimit } from './db';
 
@@ -22,8 +20,11 @@ export type SocialGraphNodeData = {
 
 export type SocialGraphEdgeData = { [key: string]: unknown; relationship: SocialGraphEdgeRelationship };
 
-export type SocialGraphNode = Node<SocialGraphNodeData, 'user'>;
-export type SocialGraphEdge = Edge<SocialGraphEdgeData, 'floating'>;
+export type SocialGraphPosition = { x: number; y: number };
+
+export type SocialGraphNode = { data: SocialGraphNodeData; id: Did; position: SocialGraphPosition };
+
+export type SocialGraphEdge = { data: SocialGraphEdgeData; id: string; source: Did; target: Did };
 
 export type SocialGraphStats = { edges: number; followers: number; following: number; mutuals: number; nodes: number };
 

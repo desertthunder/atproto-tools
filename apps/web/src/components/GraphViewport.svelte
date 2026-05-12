@@ -1,30 +1,67 @@
 <script lang="ts">
-  import { SOCIAL_GRAPH_COLORS } from '$lib/graph/colors';
-  import { layoutSocialGraph } from '$lib/graph/layout';
+  import { SOCIAL_NODE_SIZE, SOCIAL_ORIGIN_NODE_SIZE, layoutSocialGraph } from '$lib/graph/layout';
   import { getSocialGraphStats } from '$lib/graph/stats';
   import type {
     SocialGraph,
     SocialGraphAvatarMode,
     SocialGraphEdge,
+    SocialGraphEdgeRelationship,
     SocialGraphFilter,
     SocialGraphNode,
     SocialGraphNodeData,
+    SocialGraphRelationship,
     SocialGraphStats
   } from '$lib/types/social-graph';
-  import { Background, BackgroundVariant, MiniMap, SvelteFlow, type EdgeTypes, type NodeTypes } from '@xyflow/svelte';
-  import '@xyflow/svelte/dist/style.css';
-  import FloatingEdge from './FloatingEdge.svelte';
-  import OriginControls from './OriginControls.svelte';
-  import UserNode from './UserNode.svelte';
+  import { DirectedGraph } from 'graphology';
+  import { untrack } from 'svelte';
+  import type Sigma from 'sigma';
+  import type { EdgeDisplayData, NodeDisplayData } from 'sigma/types';
 
   type Props = {
     activeFilter?: SocialGraphFilter;
     avatarMode?: SocialGraphAvatarMode;
     graph?: SocialGraph | null;
     loaded?: boolean;
-    onNodeSelect?: (data: SocialGraphNodeData) => void;
+    onNodeSelect?: (data: SocialGraphNodeData | null) => void;
     onStatsChange?: (stats: SocialGraphStats) => void;
   };
+
+  type SigmaNodeAttributes = {
+    color: string;
+    forceLabel?: boolean;
+    highlighted?: boolean;
+    label: string;
+    profile: SocialGraphNodeData;
+    relationship: SocialGraphRelationship;
+    size: number;
+    x: number;
+    y: number;
+    zIndex: number;
+  };
+
+  type SigmaEdgeAttributes = {
+    color: string;
+    relationship: SocialGraphEdgeRelationship;
+    size: number;
+    source: string;
+    target: string;
+    type: 'arrow';
+  };
+
+  type SigmaSocialGraph = DirectedGraph<SigmaNodeAttributes, SigmaEdgeAttributes>;
+
+  const SIGMA_NODE_COLORS = {
+    follower: '#1d4ed8',
+    following: '#f43f5e',
+    mutuals: '#10b981',
+    origin: '#0ea5e9',
+    'second-hop': '#6366f1'
+  } satisfies Record<SocialGraphRelationship, string>;
+
+  const SIGMA_EDGE_COLORS = { follower: '#2563eb', following: '#f43f5e', mutuals: '#10b981' } satisfies Record<
+    SocialGraphEdgeRelationship,
+    string
+  >;
 
   let {
     activeFilter = 'all',
@@ -35,62 +72,163 @@
     onStatsChange
   }: Props = $props();
 
-  let nodes = $state.raw<SocialGraphNode[]>([]);
-  let edges = $state.raw<SocialGraphEdge[]>([]);
-  let layoutedNodes = $state.raw<SocialGraphNode[]>([]);
-  let layoutRun = 0;
-
-  const nodeTypes: NodeTypes = { user: UserNode };
-  const edgeTypes: EdgeTypes = { floating: FloatingEdge };
+  let container = $state<HTMLDivElement>();
+  let rendererReady = $state(false);
+  let hoveredNodeId: string | null = null;
+  let selectedNodeId: string | null = null;
+  let renderer: Sigma<SigmaNodeAttributes, SigmaEdgeAttributes> | null = null;
+  let renderedGraph: SigmaSocialGraph = new DirectedGraph<SigmaNodeAttributes, SigmaEdgeAttributes>();
 
   $effect(() => {
-    if (!loaded || !graph) {
-      layoutRun += 1;
-      nodes = [];
-      edges = [];
-      return;
-    }
+    if (!container) return;
 
-    const currentRun = (layoutRun += 1);
+    const currentContainer = container;
+    let sigma: Sigma<SigmaNodeAttributes, SigmaEdgeAttributes> | null = null;
+    let disposed = false;
 
-    layoutSocialGraph(graph.nodes, graph.edges).then((nextNodes) => {
-      if (currentRun !== layoutRun) return;
+    untrack(() => {
+      void import('sigma').then(({ default: SigmaRenderer }) => {
+        if (disposed) return;
 
-      layoutedNodes = nextNodes;
-      setVisibleGraph(nextNodes, graph.edges, activeFilter, avatarMode);
+        sigma = new SigmaRenderer<SigmaNodeAttributes, SigmaEdgeAttributes>(renderedGraph, currentContainer, {
+          allowInvalidContainer: true,
+          defaultEdgeType: 'arrow',
+          defaultNodeColor: SIGMA_NODE_COLORS.follower,
+          edgeReducer,
+          hideEdgesOnMove: true,
+          hideLabelsOnMove: true,
+          itemSizesReference: 'screen',
+          labelColor: { color: 'rgb(219 234 254)' },
+          labelDensity: 0.55,
+          labelFont: 'Google Sans, Arial, sans-serif',
+          labelGridCellSize: 110,
+          labelRenderedSizeThreshold: 9,
+          labelSize: 11,
+          labelWeight: '700',
+          maxCameraRatio: 2.2,
+          minCameraRatio: 0.18,
+          minEdgeThickness: 1.2,
+          nodeReducer,
+          renderEdgeLabels: false,
+          stagePadding: 72,
+          zIndex: true
+        });
+
+        sigma.on('clickNode', ({ node }) => {
+          selectedNodeId = node;
+          onNodeSelect?.(sigma?.getGraph().getNodeAttribute(node, 'profile') ?? null);
+          sigma?.refresh();
+        });
+        sigma.on('clickStage', () => {
+          selectedNodeId = null;
+          onNodeSelect?.(null);
+          sigma?.refresh();
+        });
+        sigma.on('enterNode', ({ node }) => {
+          hoveredNodeId = node;
+          if (sigma) sigma.getContainer().style.cursor = 'pointer';
+          sigma?.refresh();
+        });
+        sigma.on('leaveNode', () => {
+          hoveredNodeId = null;
+          if (sigma) sigma.getContainer().style.cursor = '';
+          sigma?.refresh();
+        });
+
+        renderer = sigma;
+        rendererReady = true;
+      });
+    });
+
+    return () => {
+      disposed = true;
+      sigma?.kill();
+      if (renderer === sigma) renderer = null;
+      rendererReady = false;
+    };
+  });
+
+  $effect(() => {
+    const currentRendererReady = rendererReady;
+    const currentRenderer = renderer;
+    const currentLoaded = loaded;
+    const currentGraph = graph;
+    const currentFilter = activeFilter;
+    const currentAvatarMode = avatarMode;
+
+    if (!currentRenderer || !currentRendererReady) return;
+
+    untrack(() => {
+      if (!currentLoaded || !currentGraph) {
+        clearGraphSelection();
+        const emptyGraph = new DirectedGraph<SigmaNodeAttributes, SigmaEdgeAttributes>();
+        renderedGraph = emptyGraph;
+        currentRenderer.setGraph(emptyGraph);
+        onStatsChange?.({ edges: 0, followers: 0, following: 0, mutuals: 0, nodes: 0 });
+        return;
+      }
+
+      const { edges, nodes, sigmaGraph } = buildSigmaGraph(currentGraph, currentFilter, currentAvatarMode);
+      pruneSelection(sigmaGraph);
+      renderedGraph = sigmaGraph;
+      currentRenderer.setGraph(sigmaGraph);
+      currentRenderer.refresh();
+      onStatsChange?.(getSocialGraphStats(nodes, edges, currentGraph));
     });
   });
 
-  $effect(() => {
-    if (!loaded || !graph || layoutedNodes.length === 0) return;
+  const clearGraphSelection = () => {
+    if (!selectedNodeId && !hoveredNodeId) return;
 
-    setVisibleGraph(layoutedNodes, graph.edges, activeFilter, avatarMode);
-  });
-
-  const nodeColor = (node: { data: Record<string, unknown> }) => {
-    if (node.data.relationship === 'origin') return SOCIAL_GRAPH_COLORS.origin;
-    if (node.data.relationship === 'mutuals') return SOCIAL_GRAPH_COLORS.mutuals;
-    if (node.data.relationship === 'following') return SOCIAL_GRAPH_COLORS.following;
-    if (node.data.relationship === 'second-hop') return SOCIAL_GRAPH_COLORS['second-hop'];
-    return SOCIAL_GRAPH_COLORS.follower;
+    selectedNodeId = null;
+    hoveredNodeId = null;
+    onNodeSelect?.(null);
   };
 
-  const handleNodeClick = ({ node }: { node: SocialGraphNode }) => {
-    onNodeSelect?.(node.data);
+  const pruneSelection = (sigmaGraph: SigmaSocialGraph) => {
+    if (selectedNodeId && !sigmaGraph.hasNode(selectedNodeId)) {
+      selectedNodeId = null;
+      onNodeSelect?.(null);
+    }
+
+    if (hoveredNodeId && !sigmaGraph.hasNode(hoveredNodeId)) {
+      hoveredNodeId = null;
+    }
   };
 
-  const setVisibleGraph = (
-    sourceNodes: SocialGraphNode[],
-    sourceEdges: SocialGraphEdge[],
-    filter: SocialGraphFilter,
-    mode: SocialGraphAvatarMode
-  ) => {
-    const nextNodes = filterNodes(sourceNodes, filter, mode);
-    const nextEdges = filterEdges(sourceEdges, nextNodes);
+  const buildSigmaGraph = (sourceGraph: SocialGraph, filter: SocialGraphFilter, mode: SocialGraphAvatarMode) => {
+    const layoutedNodes = layoutSocialGraph(sourceGraph.nodes, sourceGraph.edges);
+    const nodes = filterNodes(layoutedNodes, filter, mode);
+    const edges = filterEdges(sourceGraph.edges, nodes);
+    const sigmaGraph = new DirectedGraph<SigmaNodeAttributes, SigmaEdgeAttributes>({ allowSelfLoops: false });
 
-    nodes = nextNodes;
-    edges = nextEdges;
-    onStatsChange?.(getSocialGraphStats(nextNodes, nextEdges, graph ?? undefined));
+    for (const node of nodes) {
+      const label = node.data.displayName || `@${node.data.handle.replace(/^@/, '')}`;
+      sigmaGraph.addNode(node.id, {
+        color: nodeColor(node.data.relationship),
+        forceLabel: node.data.relationship === 'origin',
+        label,
+        profile: node.data,
+        relationship: node.data.relationship,
+        size: node.data.relationship === 'origin' ? SOCIAL_ORIGIN_NODE_SIZE : SOCIAL_NODE_SIZE,
+        x: node.position.x,
+        y: node.position.y,
+        zIndex: nodeZIndex(node.data.relationship)
+      });
+    }
+
+    for (const edge of edges) {
+      sigmaGraph.addDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
+        color: SIGMA_EDGE_COLORS[edge.data.relationship],
+        relationship: edge.data.relationship,
+        size: edge.data.relationship === 'mutuals' ? 2.35 : 1.65,
+        source: edge.source,
+        target: edge.target,
+        type: 'arrow'
+      });
+    }
+
+    return { edges, nodes, sigmaGraph };
   };
 
   const filterNodes = (sourceNodes: SocialGraphNode[], filter: SocialGraphFilter, mode: SocialGraphAvatarMode) => {
@@ -113,6 +251,73 @@
     if (filter === 'followers') return relationship === 'follower';
     return relationship === filter;
   };
+
+  const nodeReducer = (node: string, data: SigmaNodeAttributes): Partial<NodeDisplayData> => {
+    const activeNodeId = selectedNodeId ?? hoveredNodeId;
+    const isActive = node === activeNodeId;
+    const isAdjacent = activeNodeId ? renderedGraph.areNeighbors(node, activeNodeId) : false;
+
+    if (!activeNodeId) return data;
+
+    if (isActive) {
+      return { ...data, color: '#eff6ff', forceLabel: true, highlighted: true, size: data.size * 1.4, zIndex: 20 };
+    }
+
+    if (isAdjacent) {
+      return {
+        ...data,
+        forceLabel: data.relationship === 'origin',
+        highlighted: true,
+        size: data.size * 1.12,
+        zIndex: 12
+      };
+    }
+
+    return { ...data, color: mutedNodeColor(data.relationship), zIndex: 1 };
+  };
+
+  const edgeReducer = (_edge: string, data: SigmaEdgeAttributes): Partial<EdgeDisplayData> => {
+    const activeNodeId = selectedNodeId ?? hoveredNodeId;
+
+    if (!activeNodeId) return data;
+    if (data.source === activeNodeId || data.target === activeNodeId) {
+      return { ...data, color: SIGMA_EDGE_COLORS[data.relationship], size: data.size * 1.45, zIndex: 12 };
+    }
+
+    return { ...data, color: '#1e3a8a', size: Math.max(1, data.size * 0.72), zIndex: 1 };
+  };
+
+  const nodeColor = (relationship: SocialGraphRelationship) => SIGMA_NODE_COLORS[relationship];
+
+  const mutedNodeColor = (relationship: SocialGraphRelationship) => {
+    if (relationship === 'following') return '#7f1d1d';
+    if (relationship === 'mutuals') return '#064e3b';
+    if (relationship === 'second-hop') return '#312e81';
+    return '#1e293b';
+  };
+
+  const nodeZIndex = (relationship: SocialGraphRelationship) => {
+    if (relationship === 'origin') return 10;
+    if (relationship === 'mutuals') return 6;
+    if (relationship === 'second-hop') return 3;
+    return 4;
+  };
+
+  const centerOrigin = () => {
+    void renderer?.getCamera().animate({ angle: 0, ratio: 0.78, x: 0, y: 0 }, { duration: 420 });
+  };
+
+  const fitGraph = () => {
+    void renderer?.getCamera().animatedReset({ duration: 420 });
+  };
+
+  const zoomIn = () => {
+    void renderer?.getCamera().animatedZoom({ duration: 220 });
+  };
+
+  const zoomOut = () => {
+    void renderer?.getCamera().animatedUnzoom({ duration: 220 });
+  };
 </script>
 
 <div class="absolute inset-0 overflow-hidden bg-black text-blue-50">
@@ -125,113 +330,75 @@
   <div class="absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_35%,rgba(0,0,0,0.92)_100%)]"></div>
   <div class="absolute inset-x-0 top-0 h-px bg-blue-500/60"></div>
 
+  <div bind:this={container} class="sigma-viewport absolute inset-0" aria-label="Social graph"></div>
+
   {#if loaded}
-    <SvelteFlow
-      bind:nodes
-      bind:edges
-      {edgeTypes}
-      {nodeTypes}
-      fitView
-      fitViewOptions={{ padding: 0.28, minZoom: 0.55, maxZoom: 1.05 }}
-      nodeOrigin={[0.5, 0.5]}
-      minZoom={0.3}
-      maxZoom={1.6}
-      nodesConnectable={false}
-      defaultMarkerColor={SOCIAL_GRAPH_COLORS.origin}
-      noDragClass="nodrag"
-      noWheelClass="nowheel"
-      onnodeclick={handleNodeClick}
-      colorMode="dark"
-      colorModeSSR="dark"
-      class="social-flow">
-      <Background
-        variant={BackgroundVariant.Lines}
-        gap={56}
-        lineWidth={1}
-        bgColor="rgb(0 0 0)"
-        patternColor="rgb(37 99 235 / 0.18)" />
-      <OriginControls />
-      <MiniMap
-        position="bottom-right"
-        width={140}
-        height={86}
-        class="graph-minimap"
-        {nodeColor}
-        nodeStrokeColor={nodeColor}
-        nodeBorderRadius={8}
-        bgColor="rgb(0 0 0)"
-        maskColor="rgb(15 23 42 / 0.62)"
-        pannable
-        zoomable />
-    </SvelteFlow>
+    <div
+      class="sigma-controls absolute bottom-38 left-5 z-10 flex overflow-hidden rounded-lg border border-blue-600 bg-black">
+      <button type="button" title="Center origin" aria-label="Center origin" onclick={centerOrigin}>
+        <span class="flex items-center">
+          <i class="i-tabler-focus-centered"></i>
+        </span>
+      </button>
+      <button type="button" title="Fit graph" aria-label="Fit graph" onclick={fitGraph}>
+        <span class="flex items-center">
+          <i class="i-tabler-arrows-maximize"></i>
+        </span>
+      </button>
+      <button type="button" title="Zoom in" aria-label="Zoom in" onclick={zoomIn}>
+        <span class="flex items-center">
+          <i class="i-tabler-plus"></i>
+        </span>
+      </button>
+      <button type="button" title="Zoom out" aria-label="Zoom out" onclick={zoomOut}>
+        <span class="flex items-center">
+          <i class="i-tabler-minus"></i>
+        </span>
+      </button>
+    </div>
   {/if}
 </div>
 
 <style>
-  :global(.social-flow) {
-    --xy-background-color: rgb(0 0 0);
-    --xy-background-color-props: rgb(0 0 0);
-    --xy-minimap-background-color: rgb(0 0 0);
-    --xy-minimap-mask-background-color: rgb(15 23 42 / 0.62);
-    --xy-node-background-color: rgb(0 0 0);
-    --xy-node-color: rgb(239 246 255);
-    --xy-controls-button-background-color: rgb(0 0 0);
-    --xy-controls-button-background-color-hover: rgb(23 37 84);
-    --xy-controls-button-border-color: rgb(30 64 175);
-    --xy-controls-button-color: rgb(147 197 253);
-    --xy-controls-button-color-hover: rgb(239 246 255);
-    --xy-edge-label-background-color: rgb(0 0 0);
-    background: rgb(0 0 0) !important;
+  .sigma-viewport {
+    background: transparent;
   }
 
-  :global(.social-flow .svelte-flow__pane),
-  :global(.social-flow .svelte-flow__renderer),
-  :global(.social-flow .svelte-flow__viewport),
-  :global(.social-flow .svelte-flow__nodes),
-  :global(.social-flow .svelte-flow__edges) {
+  .sigma-viewport :global(canvas) {
     background: transparent !important;
   }
 
-  :global(.social-flow .svelte-flow__background) {
-    background-color: rgb(0 0 0) !important;
-  }
-
-  :global(.social-flow .svelte-flow__attribution) {
-    display: none;
-  }
-
-  :global(.social-flow .svelte-flow__edge-path) {
-    stroke-linecap: round;
-    filter: drop-shadow(0 0 5px rgb(37 99 235 / 0.3));
-  }
-
-  :global(.social-flow .svelte-flow__controls) {
-    overflow: hidden;
-    border: 1px solid rgb(37 99 235);
-    border-radius: 8px;
-    background: rgb(0 0 0);
+  .sigma-controls {
     box-shadow:
       0 0 0 1px rgb(0 0 0),
       0 16px 40px rgb(0 0 0 / 0.45),
       0 0 22px rgb(37 99 235 / 0.22);
   }
 
-  :global(.social-flow .svelte-flow__controls-button) {
-    border-bottom-color: rgb(30 64 175);
+  .sigma-controls button {
+    display: grid;
+    width: 32px;
+    height: 32px;
+    place-items: center;
+    color: rgb(147 197 253);
+    background: rgb(0 0 0);
+    border-right: 1px solid rgb(30 64 175);
+    transition:
+      color 120ms ease,
+      background 120ms ease;
   }
 
-  :global(.social-flow .svelte-flow__minimap) {
-    overflow: hidden;
-    border: 1px solid rgb(37 99 235);
-    border-radius: 8px;
-    box-shadow:
-      0 0 0 1px rgb(0 0 0),
-      0 16px 40px rgb(0 0 0 / 0.45),
-      0 0 22px rgb(37 99 235 / 0.2);
+  .sigma-controls button:last-child {
+    border-right: 0;
   }
 
-  :global(.social-flow .graph-minimap) {
-    right: 1.25rem !important;
-    bottom: 9.75rem !important;
+  .sigma-controls button:hover {
+    color: rgb(239 246 255);
+    background: rgb(23 37 84);
+  }
+
+  .sigma-controls i {
+    width: 16px;
+    height: 16px;
   }
 </style>

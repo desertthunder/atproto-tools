@@ -1,101 +1,100 @@
-import {
-  forceCenter,
-  forceCollide,
-  forceLink,
-  forceManyBody,
-  forceRadial,
-  forceSimulation,
-  forceX,
-  forceY
-} from 'd3-force';
+import { DirectedGraph } from 'graphology';
+import forceAtlas2 from 'graphology-layout-forceatlas2';
 
-import type { GraphArcConfig, GraphForceLink, GraphForceNode } from '$lib/types/graph';
+import type { Did } from '$lib/types/api';
+import type { GraphArcConfig } from '$lib/types/graph';
 import type { SocialGraphEdge, SocialGraphNode, SocialGraphRelationship } from '$lib/types/social-graph';
 
-export const SOCIAL_NODE_WIDTH = 260;
-export const SOCIAL_NODE_HEIGHT = 92;
-
-const NODE_RADIUS = Math.hypot(SOCIAL_NODE_WIDTH, SOCIAL_NODE_HEIGHT) / 2;
+export const SOCIAL_NODE_SIZE = 12;
+export const SOCIAL_ORIGIN_NODE_SIZE = 18;
 
 const relationshipArcs = {
-  follower: { end: 210, radius: 430, start: 150 },
-  following: { end: 30, radius: 430, start: -30 },
-  mutuals: { end: -52, radius: 345, start: -128 },
-  'second-hop': { end: 330, radius: 570, start: 210 }
+  follower: { end: 210, radius: 4.3, start: 150 },
+  following: { end: 30, radius: 4.3, start: -30 },
+  mutuals: { end: -52, radius: 3.45, start: -128 },
+  'second-hop': { end: 330, radius: 5.7, start: 210 }
 } satisfies Record<Exclude<SocialGraphRelationship, 'origin'>, GraphArcConfig>;
 
-const radiusForRelationship = (relationship: SocialGraphRelationship) => {
-  if (relationship === 'origin') return 0;
-  return relationshipArcs[relationship].radius;
+type LayoutNodeAttributes = {
+  fixed?: boolean;
+  relationship: SocialGraphRelationship;
+  size: number;
+  x: number;
+  y: number;
 };
 
-const linkDistanceForRelationship = (relationship: GraphForceLink['relationship']) => {
-  if (relationship === 'mutuals') return 285;
-  return 380;
-};
+type LayoutEdgeAttributes = { relationship: SocialGraphEdge['data']['relationship']; weight: number };
 
-export const layoutSocialGraph = async (nodes: SocialGraphNode[], edges: SocialGraphEdge[]) => {
+export const layoutSocialGraph = (nodes: SocialGraphNode[], edges: SocialGraphEdge[]) => {
   const origin = nodes.find((node) => node.data.relationship === 'origin') ?? nodes[0];
   if (!origin) return [];
 
-  const initialPositions = getInitialPositions(nodes, origin.id);
-  const forceNodes: GraphForceNode[] = nodes.map((node) => {
-    const position = initialPositions.get(node.id) ?? node.position;
+  const layoutGraph = buildLayoutGraph(nodes, edges, origin.id);
 
-    return {
-      id: node.id,
-      relationship: node.data.relationship,
-      x: node.id === origin.id ? 0 : position.x,
-      y: node.id === origin.id ? 0 : position.y,
-      fx: node.id === origin.id ? 0 : undefined,
-      fy: node.id === origin.id ? 0 : undefined
-    };
+  forceAtlas2.assign<LayoutNodeAttributes, LayoutEdgeAttributes>(layoutGraph, {
+    iterations: iterationsForNodeCount(nodes.length),
+    getEdgeWeight: 'weight',
+    settings: {
+      adjustSizes: true,
+      barnesHutOptimize: nodes.length > 60,
+      edgeWeightInfluence: 0.35,
+      gravity: 0.8,
+      scalingRatio: 1.8,
+      slowDown: 1.2,
+      strongGravityMode: true
+    }
   });
 
-  const forceLinks: GraphForceLink[] = edges.map((edge) => ({
-    source: edge.source,
-    target: edge.target,
-    relationship: edge.data?.relationship ?? 'mutuals'
-  }));
+  const originX = layoutGraph.getNodeAttribute(origin.id, 'x') ?? 0;
+  const originY = layoutGraph.getNodeAttribute(origin.id, 'y') ?? 0;
 
-  const simulation = forceSimulation(forceNodes)
-    .force(
-      'link',
-      forceLink<GraphForceNode, GraphForceLink>(forceLinks)
-        .id((node) => node.id)
-        .distance((link) => linkDistanceForRelationship(link.relationship))
-        .strength(0.42)
-    )
-    .force('charge', forceManyBody().strength(-850).distanceMin(150).distanceMax(760))
-    .force(
-      'collide',
-      forceCollide<GraphForceNode>()
-        .radius((node) => NODE_RADIUS + (node.relationship === 'origin' ? 44 : 28))
-        .strength(0.9)
-        .iterations(3)
-    )
-    .force(
-      'relationship-radius',
-      forceRadial<GraphForceNode>((node) => radiusForRelationship(node.relationship), 0, 0).strength(0.3)
-    )
-    .force('relationship-x', forceX<GraphForceNode>((node) => getRelationshipAnchor(node.relationship).x).strength(0.1))
-    .force('relationship-y', forceY<GraphForceNode>((node) => getRelationshipAnchor(node.relationship).y).strength(0.1))
-    .force('x', forceX<GraphForceNode>(0).strength(0.035))
-    .force('y', forceY<GraphForceNode>(0).strength(0.035))
-    .force('center', forceCenter(0, 0))
-    .stop();
+  return nodes.map((node) => {
+    const x = layoutGraph.getNodeAttribute(node.id, 'x') ?? node.position.x;
+    const y = layoutGraph.getNodeAttribute(node.id, 'y') ?? node.position.y;
 
-  for (let index = 0; index < 280; index += 1) {
-    simulation.tick();
-  }
-
-  const positions = new Map(forceNodes.map((node) => [node.id, { x: node.x ?? 0, y: node.y ?? 0 }]));
-
-  return nodes.map((node) => ({ ...node, position: positions.get(node.id) ?? node.position }));
+    return {
+      ...node,
+      position: { x: node.id === origin.id ? 0 : x - originX, y: node.id === origin.id ? 0 : y - originY }
+    };
+  });
 };
 
-const getInitialPositions = (nodes: SocialGraphNode[], originId: string) => {
-  const positions = new Map<string, { x: number; y: number }>([[originId, { x: 0, y: 0 }]]);
+const iterationsForNodeCount = (nodeCount: number) => {
+  if (nodeCount > 300) return 40;
+  if (nodeCount > 150) return 65;
+  if (nodeCount > 80) return 95;
+  return 140;
+};
+
+const buildLayoutGraph = (nodes: SocialGraphNode[], edges: SocialGraphEdge[], originId: Did) => {
+  const graph = new DirectedGraph<LayoutNodeAttributes, LayoutEdgeAttributes>({ allowSelfLoops: false });
+  const initialPositions = getInitialPositions(nodes, originId);
+
+  for (const node of nodes) {
+    const position = initialPositions.get(node.id) ?? node.position;
+    graph.addNode(node.id, {
+      fixed: node.id === originId,
+      relationship: node.data.relationship,
+      size: node.data.relationship === 'origin' ? SOCIAL_ORIGIN_NODE_SIZE : SOCIAL_NODE_SIZE,
+      x: node.id === originId ? 0 : position.x,
+      y: node.id === originId ? 0 : position.y
+    });
+  }
+
+  for (const edge of edges) {
+    if (!graph.hasNode(edge.source) || !graph.hasNode(edge.target) || edge.source === edge.target) continue;
+
+    graph.mergeDirectedEdgeWithKey(edge.id, edge.source, edge.target, {
+      relationship: edge.data.relationship,
+      weight: edge.data.relationship === 'mutuals' ? 1.7 : 1
+    });
+  }
+
+  return graph;
+};
+
+const getInitialPositions = (nodes: SocialGraphNode[], originId: Did) => {
+  const positions = new Map<Did, { x: number; y: number }>([[originId, { x: 0, y: 0 }]]);
 
   for (const relationship of ['follower', 'following', 'mutuals', 'second-hop'] as const) {
     const group = nodes.filter((node) => node.id !== originId && node.data.relationship === relationship);
@@ -107,13 +106,6 @@ const getInitialPositions = (nodes: SocialGraphNode[], originId: string) => {
   }
 
   return positions;
-};
-
-const getRelationshipAnchor = (relationship: SocialGraphRelationship) => {
-  if (relationship === 'origin') return { x: 0, y: 0 };
-
-  const arc = relationshipArcs[relationship];
-  return polarToCartesian((arc.start + arc.end) / 2, arc.radius);
 };
 
 const angleAt = (index: number, count: number, arc: GraphArcConfig) => {

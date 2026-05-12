@@ -1,8 +1,6 @@
-import type { Position, XYPosition } from '@xyflow/svelte';
-import type { SimulationLinkDatum, SimulationNodeDatum } from 'd3-force';
 import type { Did, ProfileView } from './api';
 import type { CachedActor, GraphFetchLimit } from './db';
-import type { SocialGraph, SocialGraphEdgeRelationship, SocialGraphRelationship } from './social-graph';
+import type { SocialGraph, SocialGraphEdgeRelationship } from './social-graph';
 
 export type GraphActorRecord = CachedActor | ProfileView;
 
@@ -33,20 +31,5 @@ export type GraphExpandOptions = {
 };
 
 export type GraphRelationshipFetchResult = { complete: boolean; dids: Did[] };
-
-export type FloatingEdgeParams = {
-  sourcePosition: Position;
-  sourceX: number;
-  sourceY: number;
-  targetPosition: Position;
-  targetX: number;
-  targetY: number;
-};
-
-export type GraphNodeBox = XYPosition & { height: number; width: number };
-
-export type GraphForceNode = SimulationNodeDatum & { id: string; relationship: SocialGraphRelationship };
-
-export type GraphForceLink = SimulationLinkDatum<GraphForceNode> & { relationship: GraphRelationship };
 
 export type GraphArcConfig = { end: number; radius: number; start: number };
