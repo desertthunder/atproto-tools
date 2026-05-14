@@ -1,21 +1,21 @@
 import { lazy } from 'solid-js';
 import { Route, Router } from '@solidjs/router';
 import { AppShell } from './components/AppShell';
+import { AuthProvider } from './lib/auth/AuthContext';
 
-const LinkDigestRoute = lazy(() =>
-  import('./routes/LinkDigest').then((m) => ({ default: m.LinkDigest }))
-);
+const LinkDigestRoute = lazy(() => import('./routes/LinkDigest').then((m) => ({ default: m.LinkDigest })));
 
-const AboutRoute = lazy(() =>
-  import('./routes/About').then((m) => ({ default: m.About }))
-);
+const AboutRoute = lazy(() => import('./routes/About').then((m) => ({ default: m.About })));
 
 function App() {
   return (
-    <Router root={AppShell}>
-      <Route path="/" component={AboutRoute} />
-      <Route path="/app" component={LinkDigestRoute} />
-    </Router>
+    <AuthProvider>
+      <Router root={AppShell}>
+        <Route path="/" component={AboutRoute} />
+        <Route path="/app" component={LinkDigestRoute} />
+        <Route path="/oauth/callback" component={LinkDigestRoute} />
+      </Router>
+    </AuthProvider>
   );
 }
 

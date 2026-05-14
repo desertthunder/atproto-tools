@@ -7,6 +7,17 @@ export type ActorProfile = AppBskyActorDefs.ProfileViewDetailed;
 export type ActorSuggestion = AppBskyActorDefs.ProfileViewBasic;
 
 export type Follow = { did: Did; handle: string; profileUrl: string };
+export type GraphRelationship = 'followers' | 'following' | 'mutuals';
+
+export type RelationshipAccount = Follow & {
+  avatar?: string;
+  displayName?: string;
+  lastPostAt?: string;
+  lastPostUri?: string;
+  relationship: GraphRelationship;
+};
+
+export type AuthorActivity = { authorDid: Did; handle: string; lastPostAt: string; lastPostUri: string };
 
 export type ExternalLinkPost = {
   author: string;
@@ -53,7 +64,7 @@ export type LinkDigestOptions = {
 
 export type LinkDigestProgress = {
   completed: number;
-  phase: 'idle' | 'resolving' | 'fetching-follows' | 'fetching-feeds' | 'done';
+  phase: 'idle' | 'resolving' | 'fetching-follows' | 'fetching-feeds' | 'paused' | 'done';
   total: number;
 };
 
@@ -73,4 +84,5 @@ export type LinkDigestStatusEvent =
   | { type: 'follow-feed-fetched'; completed: number; follow: Follow; linkCount: number; total: number }
   | { type: 'caching-posts'; count: number }
   | { type: 'digest-ready'; linkCount: number; postCount: number }
+  | { type: 'paused'; completed: number; runId: string; total: number }
   | { type: 'done'; result: LinkDigestResult };

@@ -1,7 +1,7 @@
 import { Client, ok, simpleFetchHandler } from '@atcute/client';
 import type { AppBskyActorDefs, AppBskyFeedDefs } from '@atcute/bluesky';
 import type { ActorIdentifier } from '@atcute/lexicons';
-import type { ActorSuggestion, ExternalLinkPost, Follow } from '../types';
+import type { ActorSuggestion, AuthorActivity, ExternalLinkPost, Follow, RelationshipAccount } from '../types';
 
 const BSKY_PUBLIC_API = 'https://public.api.bsky.app';
 const MAX_PAGE_SIZE = 100;
@@ -42,6 +42,48 @@ export const fetchAllFollows = async (
   return follows;
 };
 
+export const fetchAllFollowingAccounts = async (
+  actor: string,
+  options: { fetcher?: typeof fetch; limit?: number } = {}
+): Promise<RelationshipAccount[]> => {
+  const following: RelationshipAccount[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await ok(
+      createBlueskyClient(options.fetcher ?? fetch).get('app.bsky.graph.getFollows', {
+        params: { actor: actorIdentifier(actor), cursor, limit: clampLimit(options.limit ?? MAX_PAGE_SIZE) }
+      })
+    );
+
+    following.push(...page.follows.map((profile) => relationshipAccountFromProfile(profile, 'following')));
+    cursor = page.cursor;
+  } while (cursor);
+
+  return following;
+};
+
+export const fetchAllFollowers = async (
+  actor: string,
+  options: { fetcher?: typeof fetch; limit?: number } = {}
+): Promise<RelationshipAccount[]> => {
+  const followers: RelationshipAccount[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await ok(
+      createBlueskyClient(options.fetcher ?? fetch).get('app.bsky.graph.getFollowers', {
+        params: { actor: actorIdentifier(actor), cursor, limit: clampLimit(options.limit ?? MAX_PAGE_SIZE) }
+      })
+    );
+
+    followers.push(...page.followers.map((profile) => relationshipAccountFromProfile(profile, 'followers')));
+    cursor = page.cursor;
+  } while (cursor);
+
+  return followers;
+};
+
 export const searchActorsTypeahead = async ({
   fetcher = fetch,
   limit = 8,
@@ -68,6 +110,7 @@ export const fetchFollowExternalLinkPosts = async ({
   fetcher = fetch,
   follow,
   maxPages,
+  requestQueue,
   since,
   until
 }: {
@@ -75,26 +118,31 @@ export const fetchFollowExternalLinkPosts = async ({
   fetcher?: typeof fetch;
   follow: Follow;
   maxPages: number;
+  requestQueue?: RequestQueue;
   since?: string;
   until?: string;
-}): Promise<ExternalLinkPost[]> => {
+}): Promise<{ activity?: AuthorActivity; links: ExternalLinkPost[] }> => {
   const links: ExternalLinkPost[] = [];
+  let activity: AuthorActivity | undefined;
   let cursor: string | undefined;
 
   for (let pageNumber = 0; pageNumber < maxPages; pageNumber += 1) {
-    const page = await ok(
-      createBlueskyClient(fetcher).get('app.bsky.feed.getAuthorFeed', {
-        params: {
-          actor: actorIdentifier(follow.did),
-          cursor,
-          filter: 'posts_with_replies',
-          includePins: false,
-          limit: clampLimit(feedLimit)
-        }
-      })
+    const page = await queuedRequest(requestQueue, () =>
+      ok(
+        createBlueskyClient(fetcher).get('app.bsky.feed.getAuthorFeed', {
+          params: {
+            actor: actorIdentifier(follow.did),
+            cursor,
+            filter: 'posts_with_replies',
+            includePins: false,
+            limit: clampLimit(feedLimit)
+          }
+        })
+      )
     );
 
     for (const item of page.feed) {
+      activity = latestActivity(activity, item, follow);
       if (!postMatchesWindow(item, since, until)) continue;
 
       const post = extractExternalLinkPost(item, follow);
@@ -105,7 +153,13 @@ export const fetchFollowExternalLinkPosts = async ({
     cursor = page.cursor;
   }
 
-  return links;
+  return { activity, links };
+};
+
+type RequestQueue = { add: <T>(callback: () => Promise<T>) => Promise<T> };
+
+const queuedRequest = <T>(queue: RequestQueue | undefined, callback: () => Promise<T>) => {
+  return queue ? queue.add(callback) : callback();
 };
 
 const extractExternalLinkPost = (item: AppBskyFeedDefs.FeedViewPost, follow: Follow): ExternalLinkPost | undefined => {
@@ -147,6 +201,19 @@ const sharedAt = (item: AppBskyFeedDefs.FeedViewPost) => {
   return createdAt(item.post.record) ?? item.post.indexedAt;
 };
 
+const latestActivity = (
+  current: AuthorActivity | undefined,
+  item: AppBskyFeedDefs.FeedViewPost,
+  follow: Follow
+): AuthorActivity | undefined => {
+  if (item.post.author.did !== follow.did) return current;
+
+  const lastPostAt = createdAt(item.post.record) ?? item.post.indexedAt;
+  if (current && current.lastPostAt >= lastPostAt) return current;
+
+  return { authorDid: follow.did, handle: follow.handle, lastPostAt, lastPostUri: item.post.uri };
+};
+
 const createBlueskyClient = (fetcher: typeof fetch) => {
   return new Client({ handler: simpleFetchHandler({ service: BSKY_PUBLIC_API, fetch: fetcher }) });
 };
@@ -155,6 +222,20 @@ const actorIdentifier = (actor: string) => actor as ActorIdentifier;
 
 const followFromProfile = (profile: AppBskyActorDefs.ProfileView): Follow => {
   return { did: profile.did, handle: profile.handle, profileUrl: `https://bsky.app/profile/${profile.handle}` };
+};
+
+const relationshipAccountFromProfile = (
+  profile: AppBskyActorDefs.ProfileView,
+  relationship: RelationshipAccount['relationship']
+): RelationshipAccount => {
+  return {
+    avatar: profile.avatar,
+    did: profile.did,
+    displayName: profile.displayName,
+    handle: profile.handle,
+    profileUrl: `https://bsky.app/profile/${profile.handle}`,
+    relationship
+  };
 };
 
 const createdAt = (record: unknown) => {

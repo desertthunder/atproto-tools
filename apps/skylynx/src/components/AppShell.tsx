@@ -1,32 +1,23 @@
-import { createSignal, Show, type ParentProps } from 'solid-js';
+import { type ParentProps } from 'solid-js';
 import { A } from '@solidjs/router';
 import { Icon } from './Icon';
-import { FollowsPanel } from './FollowsPanel';
 
 export function AppShell(props: ParentProps) {
-  const [sidebarOpen, setSidebarOpen] = createSignal(false);
-  const openSidebar = () => setSidebarOpen(true);
-  const closeSidebar = () => setSidebarOpen(false);
-
   return (
     <>
-      <AppHeader onOpenSidebar={openSidebar} />
+      <AppHeader />
       <div class="flex-1">{props.children}</div>
       <AppFooter />
-      <Show when={sidebarOpen()}>
-        <div class="follows-overlay" onClick={closeSidebar} aria-hidden="true" />
-        <FollowsPanel onClose={closeSidebar} />
-      </Show>
     </>
   );
 }
 
-function AppHeader(props: { onOpenSidebar: () => void }) {
+function AppHeader() {
   return (
     <header class="border-b border-border-subtle">
       <div class="flex items-center justify-between h-13 px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full">
         <HeaderLogo />
-        <HeaderNav onOpenSidebar={props.onOpenSidebar} />
+        <HeaderNav />
       </div>
     </header>
   );
@@ -45,7 +36,7 @@ function HeaderLogo() {
   );
 }
 
-function HeaderNav(props: { onOpenSidebar: () => void }) {
+function HeaderNav() {
   return (
     <nav class="flex items-center gap-1">
       <A href="/" class="btn-ghost no-underline" end>
@@ -58,14 +49,6 @@ function HeaderNav(props: { onOpenSidebar: () => void }) {
         <Icon kind="bluesky" class="text-[15px]" />
         Bluesky
       </a>
-      <button
-        type="button"
-        class="btn-ghost"
-        onClick={props.onOpenSidebar}
-        aria-label="Open follows panel">
-        <Icon kind="users" class="text-[15px]" />
-        Follows
-      </button>
     </nav>
   );
 }

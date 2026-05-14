@@ -16,9 +16,15 @@ importers:
       '@atcute/client':
         specifier: ^5.0.0
         version: 5.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@atcute/identity-resolver':
+        specifier: ^2.0.0
+        version: 2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)
       '@atcute/lexicons':
         specifier: ^2.0.0
         version: 2.0.0
+      '@atcute/oauth-browser-client':
+        specifier: ^4.0.0
+        version: 4.0.0(@atcute/identity-resolver@2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)
       '@solidjs/router':
         specifier: ^0.15.3
         version: 0.15.4(solid-js@1.9.12)
@@ -28,6 +34,9 @@ importers:
       dexie:
         specifier: ^4.4.2
         version: 4.4.2
+      p-queue:
+        specifier: ^9.2.0
+        version: 9.2.0
       solid-js:
         specifier: ^1.9.12
         version: 1.9.12
@@ -213,6 +222,12 @@ packages:
     peerDependencies:
       '@atcute/lexicons': ^2.0.0
 
+  '@atcute/identity-resolver@2.0.0':
+    resolution: {integrity: sha512-IKg1BDQAF2bIdN10DL6KAXmTjK+3enTU2IRbuani9TsFahBwGZ7O5FiVmTiL6QlGfauGNW5S0xNCOxWXWMoR2Q==}
+    peerDependencies:
+      '@atcute/identity': ^2.0.0
+      '@atcute/lexicons': ^2.0.0
+
   '@atcute/identity@2.0.0':
     resolution: {integrity: sha512-YXFsggO7eJYifqkN85+kUXJE2a1iI9AyuzPTDjtS/4WE1Zs1/XiPkWmwZlAgtp+pYhVtjm3mJqy/h/mZ0OnIVw==}
     peerDependencies:
@@ -226,8 +241,29 @@ packages:
     peerDependencies:
       '@atcute/lexicons': ^2.0.0
 
+  '@atcute/multibase@1.2.0':
+    resolution: {integrity: sha512-ZK2GRra+qIYq9nNuQB52m2ul0hOmCQEtPobGfTSUxm7pF0OGEkWGkWHugFhNEDVzHzTwPxHp6VGotdZFue4lYQ==}
+
+  '@atcute/oauth-browser-client@4.0.0':
+    resolution: {integrity: sha512-rvxmRcA6WOZz5TfcKp1kVtxUioogMzQH5OdCrW3Fm+ldEPPe2ZEyP7x1PzRWo6Es3F8lm4Q7BCJJgJFkQp2a5Q==}
+    peerDependencies:
+      '@atcute/identity-resolver': ^2.0.0
+      '@atcute/lexicons': ^2.0.0
+
+  '@atcute/oauth-crypto@1.0.0':
+    resolution: {integrity: sha512-2UC1msk4PyUArk/5Pl8zgtz1T8O+LZdFfB8ENLHjQVYitpqzGj2ZpDJaWZvCF3Y8lly4KoeUHLpFPDzbP+3u+g==}
+
+  '@atcute/oauth-keyset@0.1.1':
+    resolution: {integrity: sha512-BpaaXSuMawxILhWTOR0YIpKzFSA0MQC1W5Hn0HGE+giTqYFAKcdf0oA+2RZG9ZLVIzfO2txBsTeMpxB5qL6lEQ==}
+
+  '@atcute/oauth-types@1.0.0':
+    resolution: {integrity: sha512-YOpjLU8H5PG6oKfgau+dx7rSmGsLxIA36MeGL7BDeopcyq80RqPSBAzOasEEsmbMRJ/nTsMRJhnmGkp3RCa/Zw==}
+
   '@atcute/uint8array@1.1.2':
     resolution: {integrity: sha512-n+lutnbN9mKzSjSVdfsYfzJ40u2971H+iLSL46D6d7zcrA4delxusf/ftGFvj5oGW03OioaFgQOy3Lqa3JmTeA==}
+
+  '@atcute/util-fetch@2.0.0':
+    resolution: {integrity: sha512-v+4aFQ/tuBqTV+URDJaFgm3mASWdglKXiPaGutJ1bs7QtQKmPZeesPY5MzW/a+MtI8GWCEJk8X9wOfalPOFSlg==}
 
   '@atcute/util-text@1.3.1':
     resolution: {integrity: sha512-MRgJXkx67znuBXuoAYCJkBZyd3OApL7zZlNf5kXhuoCXcdiu1nblRDycYTADSkym4epBSQWxh26kmI9sewaq6A==}
@@ -1194,6 +1230,9 @@ packages:
     resolution: {integrity: sha512-kVscqXk4OCp68SZ0dkgEKVi6/8ij300KBWTJq32P/dYeWTSwK41WyTxalN1eRmA5Z9UU/LX9D7FWSmV9SAYx6g==}
     engines: {node: '>=0.10.0'}
 
+  eventemitter3@5.0.4:
+    resolution: {integrity: sha512-mlsTRyGaPBjPedk6Bvw+aqbsXDtoAyAzm5MO7JgU+yVRyMQ5O8bD4Kcci7BS85f93veegeCPkL8R4GLClnjLFw==}
+
   events@3.3.0:
     resolution: {integrity: sha512-mQw+2fkQbALzQ7V0MY0IqdnXNOeTtP4r0lN9z7AAawCXgqea7bDii20AYrIBrFd/Hx0M2Ocz6S111CaFkUcb0Q==}
     engines: {node: '>=0.8.x'}
@@ -1677,6 +1716,11 @@ packages:
     engines: {node: ^10 || ^12 || ^13.7 || ^14 || >=15.0.1}
     hasBin: true
 
+  nanoid@5.1.11:
+    resolution: {integrity: sha512-v+KEsUv2ps74PaSKv0gHTxTCgMXOIfBEbaqa6w6ISIGC7ZsvHN4N9oJ8d4cmf0n5oTzQz2SLmThbQWhjd/8eKg==}
+    engines: {node: ^18 || >=20}
+    hasBin: true
+
   natural-compare@1.4.0:
     resolution: {integrity: sha512-OWND8ei3VtNC9h7V60qff3SVobHr996CTwgxubgyQYEpg290h9J0buyECNNJexkFm5sOajh5G116RYA1c8ZMSw==}
 
@@ -1733,6 +1777,14 @@ packages:
   p-locate@5.0.0:
     resolution: {integrity: sha512-LaNjtRWUBY++zB5nE/NwcaoMylSPk+S+ZHNB1TzdbMJMny6dynpAGt7X/tl/QYq3TIeE6nxHppbo2LGymrG5Pw==}
     engines: {node: '>=10'}
+
+  p-queue@9.2.0:
+    resolution: {integrity: sha512-dWgLE8AH0HjQ9fe74pUkKkvzzYT18Inp4zra3lKHnnwqGvcfcUBrvF2EAVX+envufDNBOzpPq/IBUONDbI7+3g==}
+    engines: {node: '>=20'}
+
+  p-timeout@7.0.1:
+    resolution: {integrity: sha512-AxTM2wDGORHGEkPCt8yqxOTMgpfbEHqF51f/5fJCmwFC3C/zNcGT63SymH2ttOAaiIws2zVg4+izQCjrakcwHg==}
+    engines: {node: '>=20'}
 
   package-manager-detector@1.6.0:
     resolution: {integrity: sha512-61A5ThoTiDG/C8s8UMZwSorAGwMJ0ERVGj2OjoW5pAalsNOg15+iQiPzrLJ4jhZ1HJzmC2PIHT2oEiH3R5fzNA==}
@@ -2366,6 +2418,15 @@ snapshots:
     transitivePeerDependencies:
       - typescript
 
+  '@atcute/identity-resolver@2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)':
+    dependencies:
+      '@atcute/identity': 2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@atcute/lexicons': 2.0.0
+      '@atcute/util-fetch': 2.0.0(typescript@6.0.3)
+      valibot: 1.4.0(typescript@6.0.3)
+    transitivePeerDependencies:
+      - typescript
+
   '@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3)':
     dependencies:
       '@atcute/lexicons': 2.0.0
@@ -2384,7 +2445,53 @@ snapshots:
     dependencies:
       '@atcute/lexicons': 2.0.0
 
+  '@atcute/multibase@1.2.0':
+    dependencies:
+      '@atcute/uint8array': 1.1.2
+
+  '@atcute/oauth-browser-client@4.0.0(@atcute/identity-resolver@2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)':
+    dependencies:
+      '@atcute/client': 5.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@atcute/identity-resolver': 2.0.0(@atcute/identity@2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3))(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@atcute/lexicons': 2.0.0
+      '@atcute/multibase': 1.2.0
+      '@atcute/oauth-crypto': 1.0.0(typescript@6.0.3)
+      '@atcute/oauth-types': 1.0.0(typescript@6.0.3)
+      nanoid: 5.1.11
+    transitivePeerDependencies:
+      - typescript
+
+  '@atcute/oauth-crypto@1.0.0(typescript@6.0.3)':
+    dependencies:
+      '@atcute/multibase': 1.2.0
+      '@atcute/uint8array': 1.1.2
+      nanoid: 5.1.11
+      valibot: 1.4.0(typescript@6.0.3)
+    transitivePeerDependencies:
+      - typescript
+
+  '@atcute/oauth-keyset@0.1.1(typescript@6.0.3)':
+    dependencies:
+      '@atcute/oauth-crypto': 1.0.0(typescript@6.0.3)
+    transitivePeerDependencies:
+      - typescript
+
+  '@atcute/oauth-types@1.0.0(typescript@6.0.3)':
+    dependencies:
+      '@atcute/identity': 2.0.0(@atcute/lexicons@2.0.0)(typescript@6.0.3)
+      '@atcute/lexicons': 2.0.0
+      '@atcute/oauth-keyset': 0.1.1(typescript@6.0.3)
+      valibot: 1.4.0(typescript@6.0.3)
+    transitivePeerDependencies:
+      - typescript
+
   '@atcute/uint8array@1.1.2': {}
+
+  '@atcute/util-fetch@2.0.0(typescript@6.0.3)':
+    dependencies:
+      valibot: 1.4.0(typescript@6.0.3)
+    transitivePeerDependencies:
+      - typescript
 
   '@atcute/util-text@1.3.1':
     dependencies:
@@ -3524,6 +3631,8 @@ snapshots:
 
   esutils@2.0.3: {}
 
+  eventemitter3@5.0.4: {}
+
   events@3.3.0: {}
 
   expect-type@1.3.0: {}
@@ -3946,6 +4055,8 @@ snapshots:
 
   nanoid@3.3.12: {}
 
+  nanoid@5.1.11: {}
+
   natural-compare@1.4.0: {}
 
   node-exports-info@1.6.0:
@@ -4017,6 +4128,13 @@ snapshots:
   p-locate@5.0.0:
     dependencies:
       p-limit: 3.1.0
+
+  p-queue@9.2.0:
+    dependencies:
+      eventemitter3: 5.0.4
+      p-timeout: 7.0.1
+
+  p-timeout@7.0.1: {}
 
   package-manager-detector@1.6.0: {}
 

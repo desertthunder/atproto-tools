@@ -1,8 +1,14 @@
-import { For, Show, createMemo, createSignal, onCleanup, onMount, type Accessor } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from 'solid-js';
+import { FollowsPanel } from '../components/FollowsPanel';
 import { searchActorsTypeahead } from '../lib/api/bluesky';
 import { generateLinkDigest } from '../lib/api/link-digest';
+import { useAuth } from '../lib/auth/AuthContext';
+import { getLatestPausedDigestProgress } from '../lib/db/database';
+import type { AuthenticatedAccount } from '../lib/auth/oauth';
+import type { DigestProgressSnapshot } from '../lib/db/schema';
 import type {
   ActorSuggestion,
+  Did,
   DigestLink,
   LinkDigestOptions,
   LinkDigestProgress,
@@ -27,12 +33,19 @@ type DigestSectionProps = {
   hasResults: boolean;
   isRunning: boolean;
   links: DigestLink[];
+  networkCollapsed: boolean;
+  onPause: () => void;
+  onResume: () => void;
+  onToggleNetwork: () => void;
   onSubmit: (event: SubmitEvent) => void;
   options: LinkDigestOptions;
+  pausedRun?: DigestProgressSnapshot;
   progress: LinkDigestProgress;
   progressText: string;
   statusEvents: StatusItem[];
   updateOption: UpdateOption;
+  viewerDid?: Did;
+  viewerHandle?: string;
 };
 
 type StatusItem = { id: number; text: string };
@@ -42,27 +55,49 @@ type DatePickerValue = { date: string; hour: number; minute: number };
 type MonthDay = { date: Date; inMonth: boolean; isoDate: string };
 
 export function LinkDigest() {
+  const auth = useAuth();
   const [options, setOptions] = createSignal(DEFAULT_OPTIONS);
   const [links, setLinks] = createSignal<DigestLink[]>([]);
   const [progress, setProgress] = createSignal<LinkDigestProgress>({ completed: 0, phase: 'idle', total: 0 });
   const [error, setError] = createSignal('');
   const [isRunning, setIsRunning] = createSignal(false);
+  const [networkCollapsed, setNetworkCollapsed] = createSignal(false);
+  const [pausedRun, setPausedRun] = createSignal<DigestProgressSnapshot>();
   const [statusEvents, setStatusEvents] = createSignal<StatusItem[]>([]);
+  let pauseRequested = false;
 
-  const runDigest = async (event: SubmitEvent) => {
-    event.preventDefault();
+  const runDigest = async (event?: SubmitEvent, resumeRunId?: string) => {
+    event?.preventDefault();
+    const account = auth.account();
+    if (!account) {
+      setError('Sign in before building a digest');
+      return;
+    }
+
+    const digestOptions = normalizedOptions({ ...options(), actor: account.handle });
+    setOptions(digestOptions);
     setError('');
     setLinks([]);
     setStatusEvents([]);
     setIsRunning(true);
+    if (!resumeRunId) setPausedRun();
+    pauseRequested = false;
 
     try {
-      for await (const statusEvent of generateLinkDigest(normalizedOptions(options()))) {
+      for await (const statusEvent of generateLinkDigest(digestOptions, {
+        resumeRunId,
+        shouldPause: () => pauseRequested
+      })) {
         setProgress(progressFromEvent(statusEvent));
         setStatusEvents((items) => [...items, { id: items.length + 1, text: statusText(statusEvent) }]);
 
+        if (statusEvent.type === 'paused') {
+          await loadPausedRun();
+        }
+
         if (statusEvent.type === 'done') {
           setLinks(statusEvent.result.links);
+          setPausedRun();
         }
       }
     } catch (caught) {
@@ -72,11 +107,28 @@ export function LinkDigest() {
     }
   };
 
+  const pauseDigest = () => {
+    pauseRequested = true;
+  };
+
+  const resumeDigest = () => {
+    const run = pausedRun();
+    if (!run) return;
+
+    setOptions(run.options);
+    void runDigest(undefined, run.id);
+  };
+
+  const loadPausedRun = async () => {
+    setPausedRun(await getLatestPausedDigestProgress(options().actor));
+  };
+
   const progressText = () => {
     const p = progress();
     if (p.phase === 'idle') return 'Ready';
     if (p.phase === 'resolving') return 'Resolving actor…';
     if (p.phase === 'fetching-follows') return 'Fetching follows…';
+    if (p.phase === 'paused') return `Paused — scanned ${p.completed} / ${p.total}`;
     if (p.phase === 'done') return `Done — scanned ${p.total} follows`;
     return `Scanning feeds ${p.completed} / ${p.total}`;
   };
@@ -84,21 +136,100 @@ export function LinkDigest() {
   const hasResults = () => links().length > 0;
   const updateOption: UpdateOption = (key, value) => setOptions({ ...options(), [key]: value });
 
+  createEffect(() => {
+    const account = auth.account();
+    if (!account) return;
+    if (options().actor === account.handle) return;
+
+    setOptions({ ...options(), actor: account.handle });
+  });
+
+  createEffect(() => {
+    const actor = options().actor;
+    if (!actor) return;
+    void loadPausedRun();
+  });
+
   return (
     <div class="px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full py-12 flex flex-col gap-14">
+      <AuthToolbar
+        account={auth.account()}
+        authError={auth.error()}
+        isLoading={auth.isLoading()}
+        onSignIn={auth.signIn}
+        onSignOut={auth.signOut}
+      />
       <DigestSection
         error={error()}
         hasResults={hasResults()}
         isRunning={isRunning()}
         links={links()}
+        networkCollapsed={networkCollapsed()}
+        onPause={pauseDigest}
+        onResume={resumeDigest}
+        onToggleNetwork={() => setNetworkCollapsed(!networkCollapsed())}
         onSubmit={runDigest}
         options={options()}
+        pausedRun={pausedRun()}
         progress={progress()}
         progressText={progressText()}
         statusEvents={statusEvents()}
         updateOption={updateOption}
+        viewerDid={auth.account()?.did}
+        viewerHandle={auth.account()?.handle}
       />
     </div>
+  );
+}
+
+function AuthToolbar(props: {
+  account?: AuthenticatedAccount;
+  authError: string;
+  isLoading: boolean;
+  onSignIn: (identifier: string) => Promise<void>;
+  onSignOut: () => Promise<void>;
+}) {
+  const [identifier, setIdentifier] = createSignal('');
+  const suggestedIdentifier = () => identifier().trim() || props.account?.handle || '';
+
+  const submit = (event: SubmitEvent) => {
+    event.preventDefault();
+    void props.onSignIn(suggestedIdentifier());
+  };
+
+  return (
+    <section class="auth-strip">
+      <div class="min-w-0">
+        <div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
+          <Icon kind={props.account ? 'user-check' : 'lock'} class="text-accent" />
+          <span>{props.account ? `Signed in as @${props.account.handle}` : 'Bluesky sign in'}</span>
+        </div>
+        <p class="text-[12px] text-ink-muted">
+          {props.account
+            ? 'Network cache and digest defaults are tied to this account.'
+            : 'Sign in to load followers, following, mutuals, and last-post cache.'}
+        </p>
+        <Show when={props.authError}>
+          <p class="mt-1 text-[12px] text-danger">{props.authError}</p>
+        </Show>
+      </div>
+      <Show
+        when={props.account}
+        fallback={
+          <form class="flex items-center gap-2 min-w-[min(100%,26rem)]" onSubmit={submit}>
+            <SignInActorField value={identifier()} onUpdate={setIdentifier} />
+            <button type="submit" class="btn-primary w-auto! px-4!" disabled={props.isLoading}>
+              <Icon kind={props.isLoading ? 'loader' : 'bluesky'} class={props.isLoading ? 'animate-spin' : ''} />
+              <span>Sign in</span>
+            </button>
+          </form>
+        }>
+        <button type="button" class="btn-ghost" disabled={props.isLoading} onClick={() => void props.onSignOut()}>
+          <Icon kind={props.isLoading ? 'loader' : 'x'} class={props.isLoading ? 'animate-spin' : ''} />
+          Sign out
+        </button>
+      </Show>
+    </section>
   );
 }
 
@@ -106,14 +237,25 @@ function DigestSection(props: DigestSectionProps) {
   return (
     <section class="flex flex-col gap-6">
       <SectionTitle />
-      <div class="grid gap-5 grid-cols-[minmax(300px,380px)_minmax(0,1fr)] max-[900px]:grid-cols-[1fr]">
+      <div class="digest-grid" classList={{ 'digest-grid--network-collapsed': props.networkCollapsed }}>
         <DigestControls
+          actorHandle={props.viewerHandle}
           isRunning={props.isRunning}
+          onPause={props.onPause}
+          onResume={props.onResume}
           onSubmit={props.onSubmit}
           options={props.options}
+          pausedRun={props.pausedRun}
+          signedIn={Boolean(props.viewerDid)}
           updateOption={props.updateOption}
         />
         <ResultsPanel {...props} />
+        <FollowsPanel
+          actorDid={props.viewerDid}
+          actorHandle={props.viewerHandle}
+          collapsed={props.networkCollapsed}
+          onToggleCollapsed={props.onToggleNetwork}
+        />
       </div>
     </section>
   );
@@ -133,64 +275,103 @@ function SectionTitle() {
 }
 
 function DigestControls(props: {
+  actorHandle?: string;
   isRunning: boolean;
+  onPause: () => void;
+  onResume: () => void;
   onSubmit: (event: SubmitEvent) => void;
   options: LinkDigestOptions;
+  pausedRun?: DigestProgressSnapshot;
+  signedIn: boolean;
   updateOption: UpdateOption;
 }) {
   return (
     <div class="bg-surface border border-border rounded-xl p-6 self-start flex flex-col gap-5">
       <form class="grid gap-3.5 grid-cols-2" onSubmit={props.onSubmit}>
-        <ActorField options={props.options} onUpdate={(value) => props.updateOption('actor', value)} />
+        <DigestIdentity signedIn={props.signedIn} actorHandle={props.actorHandle} />
         <DatePickerField
           label="Since"
+          disabled={!props.signedIn}
           value={props.options.since}
           onUpdate={(value) => props.updateOption('since', value)}
         />
         <DatePickerField
           label="Until"
+          disabled={!props.signedIn}
           value={props.options.until}
           onUpdate={(value) => props.updateOption('until', value)}
         />
         <NumberField
           label="Max links"
+          disabled={!props.signedIn}
           min={1}
           value={props.options.limit}
           onUpdate={(value) => props.updateOption('limit', value)}
         />
         <NumberField
           label="Min score"
+          disabled={!props.signedIn}
           min={0}
           value={props.options.minScore}
           onUpdate={(value) => props.updateOption('minScore', value)}
         />
         <NumberField
           label="Min shares"
+          disabled={!props.signedIn}
           min={1}
           value={props.options.minShares}
           onUpdate={(value) => props.updateOption('minShares', value)}
         />
         <NumberField
           label="Feed pages"
+          disabled={!props.signedIn}
           min={1}
           value={props.options.maxPages}
           onUpdate={(value) => props.updateOption('maxPages', value)}
         />
         <RefreshField
           checked={props.options.refreshFollows}
+          disabled={!props.signedIn}
           onUpdate={(value) => props.updateOption('refreshFollows', value)}
         />
-        <SubmitButton isRunning={props.isRunning} />
+        <DigestActionButtons
+          isRunning={props.isRunning}
+          onPause={props.onPause}
+          onResume={props.onResume}
+          pausedRun={props.pausedRun}
+          signedIn={props.signedIn}
+        />
       </form>
     </div>
   );
 }
 
-function NumberField(props: { label: string; min: number; onUpdate: (value: number) => void; value: number }) {
+function DigestIdentity(props: { actorHandle?: string; signedIn: boolean }) {
+  return (
+    <div class="col-span-full rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5">
+      <div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
+        <Icon kind={props.signedIn ? 'user-check' : 'user-search'} class="text-accent" />
+        <span>{props.signedIn ? `Digesting @${props.actorHandle}` : 'Preview mode'}</span>
+      </div>
+      <p class="text-[12px] text-ink-muted">
+        {props.signedIn ? 'Skylynx will scan links from your following graph.' : 'Sign in to enable digest controls.'}
+      </p>
+    </div>
+  );
+}
+
+function NumberField(props: {
+  disabled?: boolean;
+  label: string;
+  min: number;
+  onUpdate: (value: number) => void;
+  value: number;
+}) {
   return (
     <label>
       {props.label}
       <input
+        disabled={props.disabled}
         type="number"
         min={props.min}
         value={props.value}
@@ -200,21 +381,47 @@ function NumberField(props: { label: string; min: number; onUpdate: (value: numb
   );
 }
 
-function RefreshField(props: { checked: boolean; onUpdate: (value: boolean) => void }) {
+function RefreshField(props: { checked: boolean; disabled?: boolean; onUpdate: (value: boolean) => void }) {
   return (
     <label class="check col-span-full">
-      <input type="checkbox" checked={props.checked} onInput={(e) => props.onUpdate(e.currentTarget.checked)} />
+      <input
+        type="checkbox"
+        checked={props.checked}
+        disabled={props.disabled}
+        onInput={(e) => props.onUpdate(e.currentTarget.checked)}
+      />
       Refresh follows cache
     </label>
   );
 }
 
-function SubmitButton(props: { isRunning: boolean }) {
+function DigestActionButtons(props: {
+  isRunning: boolean;
+  onPause: () => void;
+  onResume: () => void;
+  pausedRun?: DigestProgressSnapshot;
+  signedIn: boolean;
+}) {
   return (
-    <button type="submit" class="btn-primary col-span-full" disabled={props.isRunning}>
-      <Icon kind="bolt" />
-      {props.isRunning ? 'Running…' : 'Build digest'}
-    </button>
+    <div class="col-span-full grid grid-cols-2 gap-2">
+      <button type="submit" class="btn-primary" disabled={props.isRunning || !props.signedIn}>
+        <Icon kind="bolt" />
+        {props.isRunning ? 'Running...' : 'Build digest'}
+      </button>
+      <Show
+        when={props.isRunning}
+        fallback={
+          <button type="button" class="btn-ghost justify-center" disabled={!props.pausedRun} onClick={props.onResume}>
+            <Icon kind="player-play" />
+            Resume
+          </button>
+        }>
+        <button type="button" class="btn-ghost justify-center" onClick={props.onPause}>
+          <Icon kind="player-pause" />
+          Pause
+        </button>
+      </Show>
+    </div>
   );
 }
 
@@ -223,7 +430,7 @@ function ResultsPanel(props: DigestSectionProps) {
     <div class="bg-surface border border-border rounded-xl overflow-hidden flex flex-col min-h-120">
       <StatusBar {...props} />
       <ErrorState error={props.error} />
-      <EmptyState isEmpty={!props.hasResults && !props.isRunning && !props.error} />
+      <EmptyState isEmpty={!props.hasResults && !props.isRunning && !props.error} signedIn={Boolean(props.viewerDid)} />
       <StatusFeed events={props.statusEvents} />
       <Show when={props.isRunning && !props.hasResults}>
         <Running />
@@ -410,7 +617,12 @@ function Running() {
   );
 }
 
-function DatePickerField(props: { label: string; onUpdate: (value?: string) => void; value?: string }) {
+function DatePickerField(props: {
+  disabled?: boolean;
+  label: string;
+  onUpdate: (value?: string) => void;
+  value?: string;
+}) {
   const [container, setContainer] = createSignal<HTMLDivElement>();
   const [isOpen, setIsOpen] = createSignal(false);
   const [visibleMonth, setVisibleMonth] = createSignal(monthStart(props.value ? new Date(props.value) : new Date()));
@@ -437,7 +649,13 @@ function DatePickerField(props: { label: string; onUpdate: (value?: string) => v
   return (
     <div ref={setContainer} class="relative flex flex-col gap-1.5 min-w-0">
       <span class="text-[13px] text-ink-muted">{props.label}</span>
-      <DatePickerButton isOpen={isOpen()} label={props.label} value={value()} onToggle={() => setIsOpen(!isOpen())} />
+      <DatePickerButton
+        disabled={props.disabled}
+        isOpen={isOpen()}
+        label={props.label}
+        value={value()}
+        onToggle={() => setIsOpen(!isOpen())}
+      />
       <Show when={isOpen()}>
         <DatePickerPopover
           month={visibleMonth()}
@@ -452,10 +670,17 @@ function DatePickerField(props: { label: string; onUpdate: (value?: string) => v
   );
 }
 
-function DatePickerButton(props: { isOpen: boolean; label: string; onToggle: () => void; value?: DatePickerValue }) {
+function DatePickerButton(props: {
+  disabled?: boolean;
+  isOpen: boolean;
+  label: string;
+  onToggle: () => void;
+  value?: DatePickerValue;
+}) {
   return (
     <button
       type="button"
+      disabled={props.disabled}
       class="bg-surface border border-border rounded-[7px] min-h-9.5 px-2.5 text-left text-ink flex items-center justify-between gap-2 w-full hover:border-ink-faint transition-colors duration-150"
       aria-expanded={props.isOpen}
       onClick={props.onToggle}>
@@ -580,12 +805,11 @@ function TimeNumber(props: { label: string; max: number; onUpdate: (value: numbe
   );
 }
 
-function ActorField(props: { options: LinkDigestOptions; onUpdate: (value: string) => void }) {
+function SignInActorField(props: { onUpdate: (value: string) => void; value: string }) {
   let requestId = 0;
-  const [container, setContainer] = createSignal<HTMLLabelElement>();
+  const [container, setContainer] = createSignal<HTMLDivElement>();
   const [isOpen, setIsOpen] = createSignal(false);
   const [isLoading, setIsLoading] = createSignal(false);
-  const options = () => props.options;
   const [suggestions, setSuggestions] = createSignal<ActorSuggestion[]>([]);
 
   const search = debounce(async (query: string) => {
@@ -632,8 +856,7 @@ function ActorField(props: { options: LinkDigestOptions; onUpdate: (value: strin
   });
 
   return (
-    <label ref={setContainer} class="col-span-full relative">
-      Actor handle
+    <div ref={setContainer} class="relative min-w-0 flex-1">
       <div class="relative">
         <input
           type="text"
@@ -642,7 +865,7 @@ function ActorField(props: { options: LinkDigestOptions; onUpdate: (value: strin
           aria-expanded={isOpen()}
           placeholder="handle.bsky.social"
           required
-          value={options().actor}
+          value={props.value}
           onFocus={() => setIsOpen(suggestions().length > 0)}
           onInput={(event) => updateActor(event.currentTarget.value)}
         />
@@ -653,7 +876,7 @@ function ActorField(props: { options: LinkDigestOptions; onUpdate: (value: strin
       <Show when={isOpen() && suggestions().length > 0}>
         <ActorSuggestions actors={suggestions()} onSelect={selectActor} />
       </Show>
-    </label>
+    </div>
   );
 }
 
@@ -685,7 +908,9 @@ function ActorAvatar(props: { actor: ActorSuggestion }) {
   return (
     <Show
       when={props.actor.avatar}
-      fallback={<span class="flex size-8 items-center justify-center rounded-full bg-tag-bg text-[12px] text-accent">@</span>}>
+      fallback={
+        <span class="flex size-8 items-center justify-center rounded-full bg-tag-bg text-[12px] text-accent">@</span>
+      }>
       {(avatar) => <img alt="" class="size-8 rounded-full object-cover" src={avatar()} />}
     </Show>
   );
@@ -694,7 +919,9 @@ function ActorAvatar(props: { actor: ActorSuggestion }) {
 function ActorSuggestionText(props: { actor: ActorSuggestion }) {
   return (
     <span class="min-w-0">
-      <span class="block truncate text-[13px] font-semibold text-ink">{props.actor.displayName || props.actor.handle}</span>
+      <span class="block truncate text-[13px] font-semibold text-ink">
+        {props.actor.displayName || props.actor.handle}
+      </span>
       <span class="block truncate text-[12px] text-ink-muted">@{props.actor.handle}</span>
     </span>
   );
@@ -714,13 +941,15 @@ function ErrorState(props: { error?: string }) {
   );
 }
 
-function EmptyState(props: { isEmpty: boolean }) {
+function EmptyState(props: { isEmpty: boolean; signedIn: boolean }) {
   const isEmpty = () => props.isEmpty;
   return (
     <Show when={isEmpty()}>
       <div class="flex-1 flex flex-col items-center justify-center gap-3 px-8 py-12 text-center">
         <Icon kind="link" class="text-ink-faint text-[40px]" />
-        <p class="text-ink-muted text-[14px] max-w-65">Enter an actor handle and build a digest to see shared links.</p>
+        <p class="text-ink-muted text-[14px] max-w-65">
+          {props.signedIn ? 'Build a digest to see shared links.' : 'Sign in to preview your network link digest.'}
+        </p>
       </div>
     </Show>
   );
@@ -755,6 +984,10 @@ const progressFromEvent = (event: LinkDigestStatusEvent): LinkDigestProgress => 
     return { completed: event.completed, phase: 'fetching-feeds', total: event.total };
   }
 
+  if (event.type === 'paused') {
+    return { completed: event.completed, phase: 'paused', total: event.total };
+  }
+
   if (event.type === 'done') {
     return { completed: event.result.follows.length, phase: 'done', total: event.result.follows.length };
   }
@@ -772,6 +1005,7 @@ const statusText = (event: LinkDigestStatusEvent) => {
   if (event.type === 'follow-feed-fetched') return `@${event.follow.handle}: ${event.linkCount} links`;
   if (event.type === 'caching-posts') return `Caching ${event.count} link shares`;
   if (event.type === 'digest-ready') return `Ranked ${event.linkCount} links from ${event.postCount} shares`;
+  if (event.type === 'paused') return `Paused after ${event.completed} of ${event.total} follows`;
   return 'Digest complete';
 };
 
@@ -820,7 +1054,11 @@ const calendarDayClass = (day: MonthDay, selected: boolean) => {
   return `${base} bg-surface text-ink border-border hover:border-accent hover:bg-accent-glow`;
 };
 
-const outsidePointerDownHandler = (container: Accessor<HTMLElement | undefined>, isOpen: Accessor<boolean>, close: () => void) => {
+const outsidePointerDownHandler = (
+  container: Accessor<HTMLElement | undefined>,
+  isOpen: Accessor<boolean>,
+  close: () => void
+) => {
   return (event: PointerEvent) => {
     if (!isOpen()) return;
     if (container()?.contains(event.target as Node)) return;

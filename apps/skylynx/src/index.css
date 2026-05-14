@@ -97,6 +97,11 @@ input[type='email']:focus {
   box-shadow: 0 0 0 3px theme(--color-accent-glow);
 }
 
+input:disabled,
+button:disabled {
+  opacity: 0.55;
+}
+
 input:focus-visible,
 button:focus-visible,
 a:focus-visible {
@@ -136,6 +141,11 @@ a:focus-visible {
   transform: none;
 }
 
+.btn-ghost:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .btn-ghost {
   @apply flex items-center gap-1.5 bg-transparent text-ink-muted font-medium rounded-[7px] px-2.5 min-h-8.5 border border-border cursor-pointer text-[13px];
   transition-property: color, border-color, background-color;
@@ -165,8 +175,7 @@ progress {
   --line-strong: color-mix(in srgb, theme(--color-accent) 14%, transparent);
   background-image:
     linear-gradient(to bottom, transparent 70%, theme(--color-bg) 100%),
-    linear-gradient(var(--line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    linear-gradient(var(--line) 1px, transparent 1px), linear-gradient(90deg, var(--line) 1px, transparent 1px),
     linear-gradient(var(--line-strong) 1px, transparent 1px),
     linear-gradient(90deg, var(--line-strong) 1px, transparent 1px);
   background-size:
@@ -177,21 +186,71 @@ progress {
     120px 120px;
 }
 
-/* ── Follows sidebar ────────────────────────── */
+/* ── Auth and relationships ─────────────────── */
 
-.follows-panel {
-  @apply fixed top-0 right-0 h-svh w-80 bg-surface border-l border-border flex flex-col z-50;
-  box-shadow: -8px 0 32px #00000050;
+.auth-strip {
+  @apply bg-surface border border-border rounded-xl px-5 py-4 flex items-center justify-between gap-4;
 }
 
-.follows-overlay {
-  @apply fixed inset-0 z-40;
-  background: color-mix(in srgb, theme(--color-bg) 60%, transparent);
-  backdrop-filter: blur(2px);
+.digest-grid {
+  @apply grid gap-5;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(300px, 340px);
+}
+
+.digest-grid--network-collapsed {
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) 64px;
+}
+
+.relationships-panel {
+  @apply bg-surface border border-border rounded-xl flex flex-col min-h-120 overflow-hidden;
+}
+
+.relationships-collapsed {
+  @apply flex h-full min-h-120 flex-col items-center gap-4 px-2 py-4;
+}
+
+.vertical-label {
+  writing-mode: vertical-rl;
+  @apply max-h-52 truncate text-[11px] text-ink-muted;
+}
+
+@media (max-width: 1180px) and (min-width: 901px) {
+  .digest-grid,
+  .digest-grid--network-collapsed {
+    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  }
+
+  .digest-grid > .relationships-panel {
+    grid-column: 1 / -1;
+    min-height: 26rem;
+  }
+
+  .digest-grid--network-collapsed > .relationships-panel {
+    min-height: 4rem;
+  }
+
+  .digest-grid--network-collapsed .relationships-collapsed {
+    @apply min-h-0 flex-row justify-between px-4 py-3;
+  }
+
+  .digest-grid--network-collapsed .vertical-label {
+    writing-mode: horizontal-tb;
+  }
+}
+
+@media (max-width: 720px) {
+  .auth-strip {
+    @apply flex-col items-stretch;
+  }
+
+  .digest-grid,
+  .digest-grid--network-collapsed {
+    grid-template-columns: 1fr;
+  }
 }
 
 .tab-btn {
-  @apply flex-1 text-[13px] font-medium text-ink-muted py-2.5 px-4 border-0 bg-transparent cursor-pointer;
+  @apply flex flex-col items-center justify-center gap-0.5 text-[13px] font-medium text-ink-muted py-2.5 px-3 border-0 bg-transparent cursor-pointer;
   transition-property: color, box-shadow;
   transition-duration: 150ms;
   transition-timing-function: cubic-bezier(0.2, 0, 0, 1);

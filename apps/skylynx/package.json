@@ -11,10 +11,13 @@
   "dependencies": {
     "@atcute/bluesky": "^4.0.0",
     "@atcute/client": "^5.0.0",
+    "@atcute/identity-resolver": "^2.0.0",
     "@atcute/lexicons": "^2.0.0",
+    "@atcute/oauth-browser-client": "^4.0.0",
     "@solidjs/router": "^0.15.3",
     "@typescript-eslint/parser": "^8.59.3",
     "dexie": "^4.4.2",
+    "p-queue": "^9.2.0",
     "solid-js": "^1.9.12"
   },
   "devDependencies": {
