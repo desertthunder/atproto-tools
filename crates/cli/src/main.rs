@@ -115,6 +115,7 @@ async fn main() -> anyhow::Result<()> {
                 actor,
                 since,
                 until,
+                limit,
                 min_score,
                 min_shares,
                 feed_limit,
@@ -122,8 +123,10 @@ async fn main() -> anyhow::Result<()> {
                 refresh_follows,
             } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
+                let limit = limit.unwrap_or(config.link_digest.limit);
                 let min_score = min_score.unwrap_or(config.link_digest.min_score);
                 let min_shares = min_shares.unwrap_or(config.link_digest.min_shares);
+                anyhow::ensure!(limit > 0, "limit must be greater than 0");
                 anyhow::ensure!(min_score >= 0, "minimum score must be greater than or equal to 0");
                 anyhow::ensure!(min_shares > 0, "minimum shares must be greater than 0");
                 let client = AtprotoClient::new(config.services)?;
@@ -146,7 +149,7 @@ async fn main() -> anyhow::Result<()> {
                 )
                 .await?;
                 echo::clear_status();
-                print_link_digest_markdown(links, min_score, min_shares);
+                print_link_digest_markdown(links, limit, min_score, min_shares);
             }
             BskyCommands::Follows { actor, limit, sort, asc, desc, sort_ascending, sort_descending, refresh, json } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
@@ -331,7 +334,7 @@ impl DigestLink {
     }
 }
 
-fn print_link_digest_markdown(links: Vec<ExternalLinkPost>, min_score: i64, min_shares: usize) {
+fn print_link_digest_markdown(links: Vec<ExternalLinkPost>, limit: usize, min_score: i64, min_shares: usize) {
     let mut digest_links = aggregate_digest_links(links)
         .into_iter()
         .filter(|link| link.score() >= min_score)
@@ -345,6 +348,7 @@ fn print_link_digest_markdown(links: Vec<ExternalLinkPost>, min_score: i64, min_
             .then_with(|| left.title.cmp(&right.title))
             .then_with(|| left.uri.cmp(&right.uri))
     });
+    digest_links.truncate(limit);
 
     println!("---");
     println!("title: Social Links");

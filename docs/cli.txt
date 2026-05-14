@@ -115,15 +115,17 @@ OPTIONS
 	      Config field to update.
 
 	      Supported fields are identity.identifier,
-	      link-digest.follow-poll-cron, link-digest.min-score,
-	      link-digest.min-shares, services.public-api-base, and
-	      services.plc-directory-base.
+	      link-digest.follow-poll-cron, link-digest.limit,
+	      link-digest.min-score, link-digest.min-shares,
+	      services.public-api-base, and services.plc-directory-base.
 
 	      Possible values:
 
 		     • identity.identifier
 
 		     • link-digest.follow-poll-cron
+
+		     • link-digest.limit
 
 		     • link-digest.min-score
 
@@ -351,9 +353,9 @@ NAME
        shared by followed accounts
 
 SYNOPSIS
-       atp bsky link-digest [--actor] [--since] [--until] [--min-score]
-       [--min-shares] [--feed-limit] [--max-pages] [--refresh-follows]
-       [-h|--help]
+       atp bsky link-digest [--actor] [--since] [--until] [--limit]
+       [--min-score] [--min-shares] [--feed-limit] [--max-pages]
+       [--refresh-follows] [-h|--help]
 
 DESCRIPTION
        Generate a Markdown digest of external links shared by followed
@@ -369,6 +371,9 @@ OPTIONS
 
        --until <ISO_DATETIME>
 	      Only include posts before this ISO datetime
+
+       --limit <N>
+	      Maximum links to include. Defaults to link-digest.limit
 
        --min-score <N>
 	      Minimum bookmark + repost + like score required for a link.

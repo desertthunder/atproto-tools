@@ -1,9 +1,10 @@
 use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
-pub const CONFIG_FIELD_NAMES: [&str; 6] = [
+pub const CONFIG_FIELD_NAMES: [&str; 7] = [
     "identity.identifier",
     "link-digest.follow-poll-cron",
+    "link-digest.limit",
     "link-digest.min-score",
     "link-digest.min-shares",
     "services.public-api-base",
@@ -70,8 +71,8 @@ pub enum ConfigCommands {
         /// Config field to update.
         ///
         /// Supported fields are identity.identifier, link-digest.follow-poll-cron,
-        /// link-digest.min-score, link-digest.min-shares, services.public-api-base,
-        /// and services.plc-directory-base.
+        /// link-digest.limit, link-digest.min-score, link-digest.min-shares,
+        /// services.public-api-base, and services.plc-directory-base.
         #[arg(value_parser = CONFIG_FIELD_NAMES)]
         field: String,
 
@@ -177,6 +178,10 @@ pub enum BskyCommands {
         /// Only include posts before this ISO datetime.
         #[arg(long, value_name = "ISO_DATETIME")]
         until: Option<String>,
+
+        /// Maximum links to include. Defaults to link-digest.limit.
+        #[arg(long, value_name = "N")]
+        limit: Option<usize>,
 
         /// Minimum bookmark + repost + like score required for a link. Defaults to link-digest.min-score.
         #[arg(long, value_name = "N")]

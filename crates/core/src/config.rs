@@ -45,20 +45,22 @@ impl Default for ServiceConfig {
 #[serde(rename_all = "kebab-case")]
 pub struct LinkDigestConfig {
     pub follow_poll_cron: String,
+    pub limit: usize,
     pub min_score: i64,
     pub min_shares: usize,
 }
 
 impl Default for LinkDigestConfig {
     fn default() -> Self {
-        Self { follow_poll_cron: "0 0 * * *".to_string(), min_score: 3, min_shares: 2 }
+        Self { follow_poll_cron: "0 0 * * *".to_string(), limit: 25, min_score: 3, min_shares: 2 }
     }
 }
 
 impl AppConfig {
-    pub const FIELD_NAMES: [&'static str; 6] = [
+    pub const FIELD_NAMES: [&'static str; 7] = [
         "identity.identifier",
         "link-digest.follow-poll-cron",
+        "link-digest.limit",
         "link-digest.min-score",
         "link-digest.min-shares",
         "services.public-api-base",
@@ -99,6 +101,17 @@ impl AppConfig {
         match field {
             "identity.identifier" => self.identity.identifier = value,
             "link-digest.follow-poll-cron" => self.link_digest.follow_poll_cron = value,
+            "link-digest.limit" => {
+                self.link_digest.limit = value
+                    .parse::<usize>()
+                    .map_err(|_| ConfigError::InvalidFieldValue { field: field.to_string(), value })?;
+                if self.link_digest.limit == 0 {
+                    return Err(ConfigError::InvalidFieldValue {
+                        field: field.to_string(),
+                        value: self.link_digest.limit.to_string(),
+                    });
+                }
+            }
             "link-digest.min-score" => {
                 self.link_digest.min_score = value
                     .parse::<i64>()
@@ -133,6 +146,7 @@ impl AppConfig {
         match field {
             "identity.identifier" => Ok(self.identity.identifier.clone()),
             "link-digest.follow-poll-cron" => Ok(self.link_digest.follow_poll_cron.clone()),
+            "link-digest.limit" => Ok(self.link_digest.limit.to_string()),
             "link-digest.min-score" => Ok(self.link_digest.min_score.to_string()),
             "link-digest.min-shares" => Ok(self.link_digest.min_shares.to_string()),
             "services.public-api-base" => Ok(self.services.public_api_base.clone()),
@@ -187,6 +201,11 @@ mod tests {
     }
 
     #[test]
+    fn defaults_link_digest_limit_to_twenty_five() {
+        assert_eq!(AppConfig::default().link_digest.limit, 25);
+    }
+
+    #[test]
     fn defaults_link_digest_min_shares_to_two() {
         assert_eq!(AppConfig::default().link_digest.min_shares, 2);
     }
@@ -218,6 +237,18 @@ mod tests {
     }
 
     #[test]
+    fn sets_and_gets_link_digest_limit() {
+        let mut config = AppConfig::default();
+
+        config
+            .set_field("link-digest.limit", "10".to_string())
+            .expect("set field");
+
+        assert_eq!(config.link_digest.limit, 10);
+        assert_eq!(config.get_field("link-digest.limit").expect("get field"), "10");
+    }
+
+    #[test]
     fn sets_and_gets_link_digest_min_shares() {
         let mut config = AppConfig::default();
 
@@ -241,5 +272,12 @@ mod tests {
         let mut config = AppConfig::default();
 
         assert!(config.set_field("link-digest.min-shares", "0".to_string()).is_err());
+    }
+
+    #[test]
+    fn rejects_zero_link_digest_limit() {
+        let mut config = AppConfig::default();
+
+        assert!(config.set_field("link-digest.limit", "0".to_string()).is_err());
     }
 }

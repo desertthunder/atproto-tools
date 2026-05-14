@@ -8,6 +8,8 @@ plc-directory-base = "https://plc.directory"
 # TODO: should be a table like [apps], with sub-tables for each app, e.g. [apps.link-digest]
 [link-digest]
 follow-poll-cron = "0 0 * * *"
+# Maximum links to include in a digest.
+limit = 25
 # Minimum bookmark + repost + like score required for a link to appear.
 min-score = 3
 # Minimum number of distinct followed accounts that must share the same link.
