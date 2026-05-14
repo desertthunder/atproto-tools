@@ -12,8 +12,6 @@ use std::{collections::HashSet, net::SocketAddr, sync::Arc};
 use tokio::{net::TcpListener, sync::mpsc};
 use tokio_rusqlite::Connection;
 
-pub const DEFAULT_BIND: &str = "127.0.0.1:3000";
-
 const GET_ACTOR_LAST_POSTS_NSID: &str = "dev.desertthunder.atpTools.getActorLastPosts";
 const MAX_ACTORS: usize = 100;
 const DEFAULT_STALE_AFTER_SECONDS: i64 = 86_400;

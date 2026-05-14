@@ -12,52 +12,7 @@ By default the CLI reads `~/.config/atproto-tools/config.toml`. You can pass ano
 
 ## Commands
 
-`atp [--config PATH] COMMAND [ARGS]`
-
-Run AT Protocol inspection, lexicon, and app-specific commands.
-
-- `--config PATH` — Read and write configuration at `PATH`.
-
-`atp info [--actor HANDLE_OR_DID] [--json]`
-
-Fetch profile metadata from the public Bluesky API, resolve the actor's DID document, and describe their repository.
-
-- `--actor HANDLE_OR_DID` — Inspect this actor instead of `identity.identifier` from config.
-- `--json` — Print the complete response as formatted JSON.
-
-`atp config set FIELD VALUE`
-
-Set a supported config field. Creates the config file and parent directory if needed.
-
-`atp lexicons sync TOOL --commit COMMIT [--repo REPO] [--source-path PATH] [--dest DIR] [--file FILE]...`
-
-Pull selected Lexicon JSON files from a git repository at an explicit commit hash. `TOOL` selects the default source repo, source path, local destination, and file set.
-
-- `--commit COMMIT` — Fetch lexicons from this commit.
-- `--repo REPO` — Override the source repository.
-- `--source-path PATH` — Override the directory inside the source repository containing lexicons.
-- `--dest DIR` — Override the local destination directory.
-- `--file FILE` — Sync this lexicon file. Repeat to replace tool defaults.
-
-`atp lexicons generate TOOL [--input DIR] [--output FILE]`
-
-Read local Lexicon JSON and write serde-compatible Rust structs for a specific tool crate.
-
-`atp margin export [--actor HANDLE_OR_DID] [--source URL] [--output-dir DIR]`
-
-Fetch `at.margin.note` records from the actor's resolved PDS, group them by `target.source`, and write Obsidian/GFM-compatible Markdown documents with TOML frontmatter. Without `--source`, writes one slugified file per source.
-
-`atp bsky follows [--actor HANDLE_OR_DID] [--limit N] [--sort FIELD] [--asc | --desc] [--sa FIELD | --sd FIELD] [--refresh] [--json]`
-
-Fetch followed accounts and each account's latest original post. Results include handle, DID, profile URL, latest post date and URL. Reports are cached under `~/.cache/atproto-tools/bsky-follows`.
-
-- `--actor HANDLE_OR_DID` — Inspect this actor instead of `identity.identifier` from config.
-- `--limit N` — Inspect only the first `N` follows.
-- `--sort FIELD` — Sort by `FIELD`: `handle`, `did`, `profile-url`, `last-post-at`, `last-post-rkey`, `last-post-url` (camelCase aliases accepted). Default: `last-post-at`.
-- `--asc` / `--desc` — Sort direction (default: ascending).
-- `--sa FIELD` / `--sd FIELD` — Sort by `FIELD` ascending/descending.
-- `--refresh` — Ignore cache and fetch fresh data.
-- `--json` — Print the complete cached report as formatted JSON.
+See `docs/*.txt` for manuals.
 
 ### Project Structure
 

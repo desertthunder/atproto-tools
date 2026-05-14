@@ -1,0 +1,113 @@
+atp-tools-api(1)	    General Commands Manual	      atp-tools-api(1)
+
+NAME
+       atp-tools-api - Serve and backfill AT Protocol enrichment data
+
+SYNOPSIS
+       atp-tools-api [--database] [--public-api-base] [--plc-directory-base]
+       [-h|--help] <subcommands>
+
+DESCRIPTION
+       Serve the local AT Protocol enrichment API and run the Jetstream worker
+       that keeps its SQLite database warm.
+
+       The API stores graph and feed-derived data in a local SQLite database.
+       Use the server command for HTTP/XRPC access and the worker command for
+       continuous Jetstream ingestion.
+
+OPTIONS
+       --database <PATH> [default: atp-tools-api.sqlite3]
+	      SQLite database path shared by the server and worker
+
+       --public-api-base <PUBLIC_API_BASE> [default:
+       https://public.api.bsky.app]
+	      Base URL for the public Bluesky API used for profile, graph, and
+	      feed lookups
+
+       --plc-directory-base <PLC_DIRECTORY_BASE> [default:
+       https://plc.directory]
+	      Base URL for the PLC directory used when resolving DID documents
+
+       -h, --help
+	      Print help (see a summary with '-h')
+
+SUBCOMMANDS
+       atp-tools-api-server(1)
+	      Serve the Axum XRPC API and run a bounded author-feed backfill
+	      on startup
+
+       atp-tools-api-worker(1)
+	      Run the Jetstream indexer worker for continuous event ingestion
+
+       atp-tools-api-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				atp-tools-api		      atp-tools-api(1)
+
+
+atp-tools-api-server(1)     General Commands Manual    atp-tools-api-server(1)
+
+NAME
+       atp-tools-api-server - Serve the Axum XRPC API and run a bounded
+       author-feed backfill on startup
+
+SYNOPSIS
+       atp-tools-api server [--bind] [--seed-actor] [-h|--help]
+
+DESCRIPTION
+       Serve the Axum XRPC API and run a bounded author-feed backfill on
+       startup
+
+OPTIONS
+       --bind <BIND> [default: 127.0.0.1:3000]
+	      Socket address for the HTTP server to bind
+
+       --seed-actor <SEED_ACTOR> [default: desertthunder.dev]
+	      Actor handle or DID used to seed the initial follow graph
+	      backfill
+
+       -h, --help
+	      Print help
+
+			     atp-tools-api-server      atp-tools-api-server(1)
+
+
+atp-tools-api-worker(1)     General Commands Manual    atp-tools-api-worker(1)
+
+NAME
+       atp-tools-api-worker - Run the Jetstream indexer worker for continuous
+       event ingestion
+
+SYNOPSIS
+       atp-tools-api worker [--jetstream-endpoint] [--seed-actor]
+       [--heartbeat-seconds] [--resume] [-h|--help]
+
+DESCRIPTION
+       Run the Jetstream indexer worker for continuous event ingestion
+
+OPTIONS
+       --jetstream-endpoint <JETSTREAM_ENDPOINT> [default:
+       wss://jetstream2.us-west.bsky.network/subscribe]
+	      Jetstream WebSocket endpoint to subscribe to
+
+       --seed-actor <SEED_ACTOR> [default: desertthunder.dev]
+	      Actor handle or DID used to seed graph data before live
+	      ingestion
+
+       --heartbeat-seconds <HEARTBEAT_SECONDS> [default: 30]
+	      Seconds between worker heartbeat log messages
+
+       --resume <RESUME> [default: true]
+	      Resume from the latest persisted cursor. Pass --resume=false to
+	      replay from the endpoint default
+
+	      Possible values:
+
+		     • true
+
+		     • false
+
+       -h, --help
+	      Print help
+
+			     atp-tools-api-worker      atp-tools-api-worker(1)

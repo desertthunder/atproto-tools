@@ -7,98 +7,15 @@ use atp_tools_core::{
     ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, ParallelProgress, generate_serde_models, sync_lexicons,
 };
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
-use clap::{Parser, Subcommand, ValueEnum};
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use clap::Parser;
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+mod args;
 mod echo;
 
-#[derive(Debug, Parser)]
-#[command(name = "atp")]
-#[command(about = "Tools for working with AT Protocol apps and repositories")]
-struct Cli {
-    #[arg(long, global = true, value_name = "PATH")]
-    config: Option<PathBuf>,
-
-    #[command(subcommand)]
-    command: Commands,
-}
-
-#[derive(Debug, Subcommand)]
-enum Commands {
-    /// Fetch profile metadata and repository information for an actor.
-    #[command(alias = "i")]
-    Info {
-        /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
-        #[arg(long, value_name = "HANDLE_OR_DID")]
-        actor: Option<String>,
-
-        /// Print the complete response as formatted JSON.
-        #[arg(long)]
-        json: bool,
-    },
-    /// Read or update CLI configuration.
-    #[command(alias = "conf")]
-    Config {
-        #[command(subcommand)]
-        command: ConfigCommands,
-    },
-    /// Sync Lexicon JSON and generate Rust models.
-    #[command(alias = "lex")]
-    Lexicons {
-        #[command(subcommand)]
-        command: LexiconCommands,
-    },
-    /// Work with at.margin records.
-    Margin {
-        #[command(subcommand)]
-        command: MarginCommands,
-    },
-    /// Work with Bluesky app data.
-    Bsky {
-        #[command(subcommand)]
-        command: BskyCommands,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum ConfigCommands {
-    /// Set a config field.
-    Set {
-        /// Field to set.
-        #[arg(value_parser = AppConfig::FIELD_NAMES)]
-        field: String,
-
-        /// New field value.
-        value: String,
-    },
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum Tool {
-    Bsky,
-    Margin,
-    #[value(alias = "tngl")]
-    Tangled,
-}
-
-#[derive(Debug, Clone, Copy, ValueEnum)]
-enum FollowsSortFieldArg {
-    Handle,
-    Did,
-    #[value(alias = "profileUrl")]
-    ProfileUrl,
-    #[value(alias = "lastPostAt")]
-    LastPostAt,
-    #[value(alias = "lastPostRkey")]
-    LastPostRkey,
-    #[value(alias = "lastPostUrl")]
-    LastPostUrl,
-}
+use args::{BskyCommands, Cli, Commands, ConfigCommands, FollowsSortFieldArg, LexiconCommands, MarginCommands, Tool};
 
 impl From<FollowsSortFieldArg> for FollowsSortField {
     fn from(field: FollowsSortFieldArg) -> Self {
@@ -111,142 +28,6 @@ impl From<FollowsSortFieldArg> for FollowsSortField {
             FollowsSortFieldArg::LastPostUrl => Self::LastPostUrl,
         }
     }
-}
-
-#[derive(Debug, Subcommand)]
-enum LexiconCommands {
-    /// Pull selected Lexicon JSON files from a git repository at a pinned commit.
-    Sync {
-        /// Tool preset to sync.
-        tool: Tool,
-
-        /// Git repository URL, host/path, or GitHub owner/name.
-        #[arg(long)]
-        repo: Option<String>,
-
-        /// Commit hash to fetch from.
-        #[arg(long)]
-        commit: String,
-
-        /// Directory inside the source repository that contains the lexicons.
-        #[arg(long)]
-        source_path: Option<String>,
-
-        /// Local destination directory.
-        #[arg(long)]
-        dest: Option<PathBuf>,
-
-        /// Lexicon filename to sync. Repeat to override the tool defaults.
-        #[arg(long = "file")]
-        files: Vec<String>,
-    },
-    /// Generate serde-compatible Rust models from local Lexicon JSON.
-    Generate {
-        /// Tool crate to generate models for.
-        tool: Tool,
-
-        /// Local directory containing Lexicon JSON files.
-        #[arg(long)]
-        input: Option<PathBuf>,
-
-        /// Generated Rust output file.
-        #[arg(long)]
-        output: Option<PathBuf>,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum MarginCommands {
-    /// Export notes as Obsidian/GFM-compatible Markdown documents.
-    Export {
-        /// Source URL to export. When omitted, exports one document per source.
-        #[arg(long)]
-        source: Option<String>,
-
-        /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
-        #[arg(long, value_name = "HANDLE_OR_DID")]
-        actor: Option<String>,
-
-        /// Output directory for generated Markdown files.
-        #[arg(long, default_value = ".")]
-        output_dir: PathBuf,
-    },
-}
-
-#[derive(Debug, Subcommand)]
-enum BskyCommands {
-    /// Generate a Markdown digest of links shared by followed accounts.
-    LinkDigest {
-        /// Handle or DID whose follows should be inspected. Defaults to identity.identifier in config.toml.
-        #[arg(long, value_name = "HANDLE_OR_DID")]
-        actor: Option<String>,
-
-        /// Only include posts at or after this ISO datetime.
-        #[arg(long, value_name = "ISO_DATETIME")]
-        since: Option<String>,
-
-        /// Only include posts before this ISO datetime.
-        #[arg(long, value_name = "ISO_DATETIME")]
-        until: Option<String>,
-
-        /// Minimum bookmark + repost + like score required for a link. Defaults to link-digest.min-score.
-        #[arg(long, value_name = "N")]
-        min_score: Option<i64>,
-
-        /// Minimum distinct followed accounts that must share the same link. Defaults to link-digest.min-shares.
-        #[arg(long, value_name = "N")]
-        min_shares: Option<usize>,
-
-        /// Number of author-feed posts to fetch per page.
-        #[arg(long, default_value_t = 100, value_name = "N")]
-        feed_limit: u16,
-
-        /// Maximum author-feed pages to fetch per follow.
-        #[arg(long, default_value_t = 5, value_name = "N")]
-        max_pages: usize,
-
-        /// Ignore the cached follow list and fetch fresh follows.
-        #[arg(long)]
-        refresh_follows: bool,
-    },
-    /// Fetch follows and their latest posts.
-    Follows {
-        /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
-        #[arg(long, value_name = "HANDLE_OR_DID")]
-        actor: Option<String>,
-
-        /// Only inspect the first N follows.
-        #[arg(long, value_name = "N")]
-        limit: Option<usize>,
-
-        /// Sort rows by field. Defaults to last-post-at.
-        #[arg(long, value_enum, value_name = "FIELD", conflicts_with_all = ["sort_ascending", "sort_descending"])]
-        sort: Option<FollowsSortFieldArg>,
-
-        /// Sort in ascending order. This is the default direction.
-        #[arg(long, conflicts_with_all = ["desc", "sort_ascending", "sort_descending"])]
-        asc: bool,
-
-        /// Sort in descending order.
-        #[arg(long, conflicts_with_all = ["asc", "sort_ascending", "sort_descending"])]
-        desc: bool,
-
-        /// Sort rows by field in ascending order.
-        #[arg(long = "sa", value_enum, value_name = "FIELD", conflicts_with_all = ["sort", "asc", "desc", "sort_descending"])]
-        sort_ascending: Option<FollowsSortFieldArg>,
-
-        /// Sort rows by field in descending order.
-        #[arg(long = "sd", value_enum, value_name = "FIELD", conflicts_with_all = ["sort", "asc", "desc", "sort_ascending"])]
-        sort_descending: Option<FollowsSortFieldArg>,
-
-        /// Ignore any matching cache file and fetch fresh data.
-        #[arg(long)]
-        refresh: bool,
-
-        /// Print the complete cached report as formatted JSON.
-        #[arg(long)]
-        json: bool,
-    },
 }
 
 #[tokio::main]
@@ -323,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
                     export_notes(&client, &actor).await?
                 };
 
-                fs::create_dir_all(&output_dir)?;
+                std::fs::create_dir_all(&output_dir)?;
                 let written = write_margin_documents(&output_dir, &documents)?;
                 echo::pair("documents", written.len());
                 echo::list("written", &written);
@@ -670,7 +451,7 @@ fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument
 
     for document in documents {
         let path = output_dir.join(document.filename());
-        fs::write(&path, document.to_markdown()?)?;
+        std::fs::write(&path, document.to_markdown()?)?;
         written.push(path.display().to_string());
     }
 

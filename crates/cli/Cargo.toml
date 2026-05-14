@@ -12,3 +12,8 @@ clap.workspace = true
 owo-colors.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
+
+[build-dependencies]
+clap.workspace = true
+clap_mangen = "0.3"
+shell-escape = "0.1"

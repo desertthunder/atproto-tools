@@ -11,8 +11,6 @@ use tokio::time::{interval, sleep, timeout};
 use tokio_rusqlite::Connection;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 
-pub const DEFAULT_JETSTREAM_ENDPOINT: &str = "wss://jetstream2.us-west.bsky.network/subscribe";
-
 #[derive(Debug, Deserialize)]
 struct JetstreamEvent {
     did: String,

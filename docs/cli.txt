@@ -1,0 +1,485 @@
+atp(1)			    General Commands Manual			atp(1)
+
+NAME
+       atp - Inspect and maintain AT Protocol data from a POSIX-friendly CLI
+
+SYNOPSIS
+       atp [--config] [-h|--help] <subcommands>
+
+DESCRIPTION
+       Inspect AT Protocol actors, synchronize Lexicon schemas, export
+       at.margin notes, and build Bluesky follow reports.
+
+       The CLI reads configuration from ~/.config/atproto-tools/config.toml by
+       default. Pass --config to use another file for a single invocation.
+
+OPTIONS
+       --config <PATH>
+	      Read configuration from PATH instead of
+	      ~/.config/atproto-tools/config.toml
+
+       -h, --help
+	      Print help (see a summary with '-h')
+
+SUBCOMMANDS
+       atp-info(1)
+	      Fetch profile metadata, DID document data, and repository
+	      information for an actor
+
+       atp-config(1)
+	      Read or update CLI configuration values
+
+       atp-lexicons(1)
+	      Sync Lexicon JSON and generate serde-compatible Rust models
+
+       atp-margin(1)
+	      Export and transform at.margin records
+
+       atp-bsky(1)
+	      Fetch, cache, and analyze Bluesky app data
+
+       atp-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				     atp				atp(1)
+
+
+atp-info(1)		    General Commands Manual		   atp-info(1)
+
+NAME
+       atp-info - Fetch profile metadata, DID document data, and repository
+       information for an actor
+
+SYNOPSIS
+       atp info [--actor] [--json] [-h|--help]
+
+DESCRIPTION
+       Fetch profile metadata, DID document data, and repository information
+       for an actor
+
+OPTIONS
+       --actor <HANDLE_OR_DID>
+	      Handle or DID to inspect. Defaults to identity.identifier in
+	      config.toml
+
+       --json Print the complete response as formatted JSON instead of a
+	      compact terminal summary
+
+       -h, --help
+	      Print help
+
+				   atp-info			   atp-info(1)
+
+
+atp-config(1)		    General Commands Manual		 atp-config(1)
+
+NAME
+       atp-config - Read or update CLI configuration values
+
+SYNOPSIS
+       atp config [-h|--help] <subcommands>
+
+DESCRIPTION
+       Read or update CLI configuration values
+
+OPTIONS
+       -h, --help
+	      Print help
+
+SUBCOMMANDS
+       atp-config-set(1)
+	      Set a supported config field and persist it to disk
+
+       atp-config-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				  atp-config			 atp-config(1)
+
+
+atp-config-set(1)	    General Commands Manual	     atp-config-set(1)
+
+NAME
+       atp-config-set - Set a supported config field and persist it to disk
+
+SYNOPSIS
+       atp config set [-h|--help] <FIELD> <VALUE>
+
+DESCRIPTION
+       Set a supported config field and persist it to disk
+
+OPTIONS
+       -h, --help
+	      Print help (see a summary with '-h')
+
+       <FIELD>
+	      Config field to update.
+
+	      Supported fields are identity.identifier,
+	      link-digest.follow-poll-cron, link-digest.min-score,
+	      link-digest.min-shares, services.public-api-base, and
+	      services.plc-directory-base.
+
+	      Possible values:
+
+		     • identity.identifier
+
+		     • link-digest.follow-poll-cron
+
+		     • link-digest.min-score
+
+		     • link-digest.min-shares
+
+		     • services.public-api-base
+
+		     • services.plc-directory-base
+
+       <VALUE>
+	      New value for FIELD. Numeric fields are validated before the
+	      config file is written
+
+				atp-config-set		     atp-config-set(1)
+
+
+atp-lexicons(1) 	    General Commands Manual	       atp-lexicons(1)
+
+NAME
+       atp-lexicons - Sync Lexicon JSON and generate serde-compatible Rust
+       models
+
+SYNOPSIS
+       atp lexicons [-h|--help] <subcommands>
+
+DESCRIPTION
+       Sync Lexicon JSON and generate serde-compatible Rust models
+
+OPTIONS
+       -h, --help
+	      Print help
+
+SUBCOMMANDS
+       atp-lexicons-sync(1)
+	      Pull selected Lexicon JSON files from a git repository at a
+	      pinned commit
+
+       atp-lexicons-generate(1)
+	      Generate serde-compatible Rust models from local Lexicon JSON
+
+       atp-lexicons-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				 atp-lexicons		       atp-lexicons(1)
+
+
+atp-lexicons-sync(1)	    General Commands Manual	  atp-lexicons-sync(1)
+
+NAME
+       atp-lexicons-sync - Pull selected Lexicon JSON files from a git
+       repository at a pinned commit
+
+SYNOPSIS
+       atp lexicons sync [--repo] <--commit> [--source-path] [--dest] [--file]
+       [-h|--help] <TOOL>
+
+DESCRIPTION
+       Pull selected Lexicon JSON files from a git repository at a pinned
+       commit
+
+OPTIONS
+       --repo <REPO>
+	      Git repository URL, host/path, or GitHub owner/name. Overrides
+	      the tool preset source repo
+
+       --commit <COMMIT>
+	      Commit hash to fetch from. Pinning the commit keeps generated
+	      models reproducible
+
+       --source-path <SOURCE_PATH>
+	      Directory inside the source repository that contains Lexicon
+	      JSON files
+
+       --dest <DEST>
+	      Local destination directory for synced Lexicon JSON files
+
+       --file <FILES>
+	      Lexicon filename to sync. Repeat to replace the preset file list
+
+       -h, --help
+	      Print help
+
+       <TOOL> Tool preset to sync. The preset selects default repo, source
+	      path, destination, and files
+
+	      Possible values:
+
+		     • bsky
+
+		     • margin
+
+		     • tangled
+
+			      atp-lexicons-sync 	  atp-lexicons-sync(1)
+
+
+atp-lexicons-generate(1)    General Commands Manual   atp-lexicons-generate(1)
+
+NAME
+       atp-lexicons-generate - Generate serde-compatible Rust models from
+       local Lexicon JSON
+
+SYNOPSIS
+       atp lexicons generate [--input] [--output] [-h|--help] <TOOL>
+
+DESCRIPTION
+       Generate serde-compatible Rust models from local Lexicon JSON
+
+OPTIONS
+       --input <INPUT>
+	      Local directory containing Lexicon JSON files. Defaults to the
+	      selected tool's lexicon directory
+
+       --output <OUTPUT>
+	      Generated Rust output file. Defaults to the selected tool
+	      crate's generated.rs
+
+       -h, --help
+	      Print help
+
+       <TOOL> Tool crate to generate models for
+
+	      Possible values:
+
+		     • bsky
+
+		     • margin
+
+		     • tangled
+
+			    atp-lexicons-generate     atp-lexicons-generate(1)
+
+
+atp-margin(1)		    General Commands Manual		 atp-margin(1)
+
+NAME
+       atp-margin - Export and transform at.margin records
+
+SYNOPSIS
+       atp margin [-h|--help] <subcommands>
+
+DESCRIPTION
+       Export and transform at.margin records
+
+OPTIONS
+       -h, --help
+	      Print help
+
+SUBCOMMANDS
+       atp-margin-export(1)
+	      Export notes as Obsidian/GFM-compatible Markdown documents with
+	      TOML frontmatter
+
+       atp-margin-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				  atp-margin			 atp-margin(1)
+
+
+atp-margin-export(1)	    General Commands Manual	  atp-margin-export(1)
+
+NAME
+       atp-margin-export - Export notes as Obsidian/GFM-compatible Markdown
+       documents with TOML frontmatter
+
+SYNOPSIS
+       atp margin export [--source] [--actor] [--output-dir] [-h|--help]
+
+DESCRIPTION
+       Export notes as Obsidian/GFM-compatible Markdown documents with TOML
+       frontmatter
+
+OPTIONS
+       --source <SOURCE>
+	      Source URL to export. When omitted, exports one document per
+	      source found for the actor
+
+       --actor <HANDLE_OR_DID>
+	      Handle or DID to inspect. Defaults to identity.identifier in
+	      config.toml
+
+       --output-dir <OUTPUT_DIR> [default: .]
+	      Output directory for generated Markdown files. The directory is
+	      created when missing
+
+       -h, --help
+	      Print help
+
+			      atp-margin-export 	  atp-margin-export(1)
+
+
+atp-bsky(1)		    General Commands Manual		   atp-bsky(1)
+
+NAME
+       atp-bsky - Fetch, cache, and analyze Bluesky app data
+
+SYNOPSIS
+       atp bsky [-h|--help] <subcommands>
+
+DESCRIPTION
+       Fetch, cache, and analyze Bluesky app data
+
+OPTIONS
+       -h, --help
+	      Print help
+
+SUBCOMMANDS
+       atp-bsky-link-digest(1)
+	      Generate a Markdown digest of external links shared by followed
+	      accounts
+
+       atp-bsky-follows(1)
+	      Fetch followed accounts and each account's latest original post
+
+       atp-bsky-help(1)
+	      Print this message or the help of the given subcommand(s)
+
+				   atp-bsky			   atp-bsky(1)
+
+
+atp-bsky-link-digest(1)     General Commands Manual    atp-bsky-link-digest(1)
+
+NAME
+       atp-bsky-link-digest - Generate a Markdown digest of external links
+       shared by followed accounts
+
+SYNOPSIS
+       atp bsky link-digest [--actor] [--since] [--until] [--min-score]
+       [--min-shares] [--feed-limit] [--max-pages] [--refresh-follows]
+       [-h|--help]
+
+DESCRIPTION
+       Generate a Markdown digest of external links shared by followed
+       accounts
+
+OPTIONS
+       --actor <HANDLE_OR_DID>
+	      Handle or DID whose follows should be inspected. Defaults to
+	      identity.identifier in config.toml
+
+       --since <ISO_DATETIME>
+	      Only include posts at or after this ISO datetime
+
+       --until <ISO_DATETIME>
+	      Only include posts before this ISO datetime
+
+       --min-score <N>
+	      Minimum bookmark + repost + like score required for a link.
+	      Defaults to link-digest.min-score
+
+       --min-shares <N>
+	      Minimum distinct followed accounts that must share the same
+	      link. Defaults to link-digest.min-shares
+
+       --feed-limit <N> [default: 100]
+	      Number of author-feed posts to fetch per page
+
+       --max-pages <N> [default: 5]
+	      Maximum author-feed pages to fetch per follow
+
+       --refresh-follows
+	      Ignore the cached follow list and fetch fresh follows before
+	      building the digest
+
+       -h, --help
+	      Print help
+
+			     atp-bsky-link-digest      atp-bsky-link-digest(1)
+
+
+atp-bsky-follows(1)	    General Commands Manual	   atp-bsky-follows(1)
+
+NAME
+       atp-bsky-follows - Fetch followed accounts and each account's latest
+       original post
+
+SYNOPSIS
+       atp bsky follows [--actor] [--limit] [--sort] [--asc] [--desc] [--sa]
+       [--sd] [--refresh] [--json] [-h|--help]
+
+DESCRIPTION
+       Fetch followed accounts and each account's latest original post
+
+OPTIONS
+       --actor <HANDLE_OR_DID>
+	      Handle or DID to inspect. Defaults to identity.identifier in
+	      config.toml
+
+       --limit <N>
+	      Only inspect the first N follows after fetching or loading the
+	      follow list
+
+       --sort <FIELD>
+	      Sort rows by field. Defaults to last-post-at
+
+	      Possible values:
+
+		     • handle
+
+		     • did
+
+		     • profile-url
+
+		     • last-post-at
+
+		     • last-post-rkey
+
+		     • last-post-url
+
+       --asc  Sort in ascending order. This is the default direction
+
+       --desc Sort in descending order
+
+       --sa <FIELD>
+	      Sort rows by FIELD in ascending order. Shorthand for --sort
+	      FIELD --asc
+
+	      Possible values:
+
+		     • handle
+
+		     • did
+
+		     • profile-url
+
+		     • last-post-at
+
+		     • last-post-rkey
+
+		     • last-post-url
+
+       --sd <FIELD>
+	      Sort rows by FIELD in descending order. Shorthand for --sort
+	      FIELD --desc
+
+	      Possible values:
+
+		     • handle
+
+		     • did
+
+		     • profile-url
+
+		     • last-post-at
+
+		     • last-post-rkey
+
+		     • last-post-url
+
+       --refresh
+	      Ignore any matching cache file and fetch fresh data from Bluesky
+
+       --json Print the complete cached report as formatted JSON instead of a
+	      table
+
+       -h, --help
+	      Print help
+
+			       atp-bsky-follows 	   atp-bsky-follows(1)

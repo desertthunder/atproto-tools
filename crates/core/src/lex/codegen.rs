@@ -1,6 +1,5 @@
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fs,
     path::{Path, PathBuf},
 };
 
@@ -24,7 +23,7 @@ pub fn generate_serde_models(
     let mut lexicons = Vec::with_capacity(files.len());
     for path in files {
         let contents =
-            fs::read_to_string(&path).map_err(|source| CodegenError::ReadFile { path: path.clone(), source })?;
+            std::fs::read_to_string(&path).map_err(|source| CodegenError::ReadFile { path: path.clone(), source })?;
         let lexicon = serde_json::from_str::<Value>(&contents)
             .map_err(|source| CodegenError::Json { path: path.clone(), source })?;
         lexicons.push((path, lexicon));
@@ -41,11 +40,13 @@ pub fn generate_serde_models(
     }
 
     if let Some(parent) = output.parent() {
-        fs::create_dir_all(parent).map_err(|source| CodegenError::CreateDir { path: parent.to_path_buf(), source })?;
+        std::fs::create_dir_all(parent)
+            .map_err(|source| CodegenError::CreateDir { path: parent.to_path_buf(), source })?;
     }
 
     let generated = format!("{}\n", generated.trim_end());
-    fs::write(output, generated).map_err(|source| CodegenError::WriteFile { path: output.to_path_buf(), source })?;
+    std::fs::write(output, generated)
+        .map_err(|source| CodegenError::WriteFile { path: output.to_path_buf(), source })?;
 
     Ok(CodegenReport { output: output.to_path_buf(), structs })
 }
@@ -67,7 +68,7 @@ pub enum CodegenError {
 }
 
 fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), CodegenError> {
-    for entry in fs::read_dir(dir).map_err(|source| CodegenError::ReadDir { path: dir.to_path_buf(), source })? {
+    for entry in std::fs::read_dir(dir).map_err(|source| CodegenError::ReadDir { path: dir.to_path_buf(), source })? {
         let path = entry
             .map_err(|source| CodegenError::ReadDir { path: dir.to_path_buf(), source })?
             .path();

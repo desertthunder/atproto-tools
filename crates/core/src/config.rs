@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -74,7 +74,8 @@ impl AppConfig {
             return Ok(Self::default());
         }
 
-        let contents = fs::read_to_string(&path).map_err(|source| ConfigError::Read { path: path.clone(), source })?;
+        let contents =
+            std::fs::read_to_string(&path).map_err(|source| ConfigError::Read { path: path.clone(), source })?;
 
         toml::from_str(&contents).map_err(|source| ConfigError::Parse { path, source })
     }
@@ -83,13 +84,13 @@ impl AppConfig {
         let path = resolve_config_path(path).ok_or(ConfigError::MissingPath)?;
 
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)
+            std::fs::create_dir_all(parent)
                 .map_err(|source| ConfigError::CreateDir { path: parent.to_path_buf(), source })?;
         }
 
         let contents = toml::to_string_pretty(self).map_err(ConfigError::Serialize)?;
 
-        fs::write(&path, contents).map_err(|source| ConfigError::Write { path: path.clone(), source })?;
+        std::fs::write(&path, contents).map_err(|source| ConfigError::Write { path: path.clone(), source })?;
 
         Ok(path)
     }
@@ -166,8 +167,8 @@ fn resolve_config_path(path: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 fn default_config_path() -> Option<PathBuf> {
-    let config_home = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
-    let base = config_home.or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
+    let config_home = std::env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
+    let base = config_home.or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
     Some(base.join("atproto-tools").join("config.toml"))
 }
 
