@@ -60,13 +60,11 @@ function StepCard(props: { step: (typeof HOW_IT_WORKS)[number] }) {
   );
 }
 
-/* ── Ethos ──────────────────────────────────── */
-
 function Ethos() {
   return (
     <section class="flex flex-col gap-10">
       <SectionLabel>The idea</SectionLabel>
-      <div class="grid gap-px bg-border-subtle border border-border-subtle rounded-[12px] overflow-hidden">
+      <div class="grid gap-px bg-border-subtle border border-border-subtle rounded-xl overflow-hidden">
         <For each={ETHOS_ITEMS}>{(item) => <EthosRow item={item} />}</For>
       </div>
     </section>
@@ -84,7 +82,7 @@ function EthosRow(props: { item: (typeof ETHOS_ITEMS)[number] }) {
 
 function EthosIcon(props: { kind: IconKind }) {
   return (
-    <div class="shrink-0 w-10 h-10 rounded-[8px] bg-tag-bg border border-tag-border flex items-center justify-center">
+    <div class="shrink-0 w-10 h-10 rounded-lg bg-tag-bg border border-tag-border flex items-center justify-center">
       <Icon kind={props.kind} class="text-accent text-[18px]" />
     </div>
   );
@@ -98,8 +96,6 @@ function EthosBody(props: { item: (typeof ETHOS_ITEMS)[number] }) {
     </div>
   );
 }
-
-/* ── Philosophy ─────────────────────────────── */
 
 function Philosophy() {
   return (
@@ -125,11 +121,9 @@ function PhilosophyBlock(props: { block: (typeof PHILOSOPHY_BLOCKS)[number] }) {
   );
 }
 
-/* ── CTA ────────────────────────────────────── */
-
 function CallToAction() {
   return (
-    <section class="flex flex-col gap-5 p-8 bg-surface border border-border rounded-[12px] max-w-160">
+    <section class="flex flex-col gap-5 p-8 bg-surface border border-border rounded-xl max-w-160">
       <h2
         class="text-[24px] font-semibold text-ink leading-[1.2] tracking-[-0.015em]"
         style={{ 'font-family': 'var(--font-display)' }}>
@@ -139,7 +133,7 @@ function CallToAction() {
         Enter any Bluesky handle and Skylynx will map the links being shared across that actor's follows — no account
         required, no data leaves your browser.
       </p>
-      <A href="/" class="btn-primary self-start !w-auto px-5 no-underline">
+      <A href="/app" class="btn-primary self-start w-auto! px-5 no-underline">
         <Icon kind="bolt" />
         Build a digest
       </A>
@@ -147,13 +141,9 @@ function CallToAction() {
   );
 }
 
-/* ── Shared ─────────────────────────────────── */
-
 function SectionLabel(props: { children: string }) {
   return <h2 class="text-[13px] font-semibold tracking-[0.08em] uppercase text-ink-muted">{props.children}</h2>;
 }
-
-/* ── Data ───────────────────────────────────── */
 
 const HOW_IT_WORKS: { icon: IconKind; title: string; body: string }[] = [
   {

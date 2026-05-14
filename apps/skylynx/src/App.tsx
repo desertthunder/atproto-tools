@@ -13,8 +13,8 @@ const AboutRoute = lazy(() =>
 function App() {
   return (
     <Router root={AppShell}>
-      <Route path="/" component={LinkDigestRoute} />
-      <Route path="/about" component={AboutRoute} />
+      <Route path="/" component={AboutRoute} />
+      <Route path="/app" component={LinkDigestRoute} />
     </Router>
   );
 }

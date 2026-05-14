@@ -1,7 +1,7 @@
 import { Client, ok, simpleFetchHandler } from '@atcute/client';
 import type { AppBskyActorDefs, AppBskyFeedDefs } from '@atcute/bluesky';
 import type { ActorIdentifier } from '@atcute/lexicons';
-import type { ExternalLinkPost, Follow } from '../types';
+import type { ActorSuggestion, ExternalLinkPost, Follow } from '../types';
 
 const BSKY_PUBLIC_API = 'https://public.api.bsky.app';
 const MAX_PAGE_SIZE = 100;
@@ -40,6 +40,27 @@ export const fetchAllFollows = async (
   } while (cursor);
 
   return follows;
+};
+
+export const searchActorsTypeahead = async ({
+  fetcher = fetch,
+  limit = 8,
+  query
+}: {
+  fetcher?: typeof fetch;
+  limit?: number;
+  query: string;
+}): Promise<ActorSuggestion[]> => {
+  const q = query.trim();
+  if (!q) return [];
+
+  const data = await ok(
+    createBlueskyClient(fetcher).get('app.bsky.actor.searchActorsTypeahead', {
+      params: { limit: clampLimit(limit), q }
+    })
+  );
+
+  return data.actors;
 };
 
 export const fetchFollowExternalLinkPosts = async ({

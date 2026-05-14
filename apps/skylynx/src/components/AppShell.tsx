@@ -48,8 +48,11 @@ function HeaderLogo() {
 function HeaderNav(props: { onOpenSidebar: () => void }) {
   return (
     <nav class="flex items-center gap-1">
-      <A href="/about" class="btn-ghost no-underline">
+      <A href="/" class="btn-ghost no-underline" end>
         About
+      </A>
+      <A href="/app" class="btn-ghost no-underline">
+        App
       </A>
       <a href="https://bsky.app" target="_blank" rel="noopener noreferrer" class="btn-ghost">
         <Icon kind="bluesky" class="text-[15px]" />

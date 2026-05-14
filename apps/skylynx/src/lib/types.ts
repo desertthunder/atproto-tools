@@ -1,6 +1,11 @@
 import type { AppBskyActorDefs } from '@atcute/bluesky';
 import type { Did } from '@atcute/lexicons';
 
+export type { Did } from '@atcute/lexicons';
+
+export type ActorProfile = AppBskyActorDefs.ProfileViewDetailed;
+export type ActorSuggestion = AppBskyActorDefs.ProfileViewBasic;
+
 export type Follow = { did: Did; handle: string; profileUrl: string };
 
 export type ExternalLinkPost = {
@@ -58,3 +63,14 @@ export type LinkDigestResult = {
   links: DigestLink[];
   posts: ExternalLinkPost[];
 };
+
+export type LinkDigestStatusEvent =
+  | { type: 'resolving-actor'; actor: string }
+  | { type: 'actor-resolved'; actor: AppBskyActorDefs.ProfileViewDetailed }
+  | { type: 'loading-follows'; actorDid: Did; refresh: boolean }
+  | { type: 'follows-loaded'; count: number; source: 'cache' | 'network' }
+  | { type: 'fetching-feeds'; completed: number; total: number }
+  | { type: 'follow-feed-fetched'; completed: number; follow: Follow; linkCount: number; total: number }
+  | { type: 'caching-posts'; count: number }
+  | { type: 'digest-ready'; linkCount: number; postCount: number }
+  | { type: 'done'; result: LinkDigestResult };

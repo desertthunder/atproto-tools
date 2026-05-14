@@ -1,7 +1,14 @@
-import { For, Show, createSignal } from 'solid-js';
-import { buildLinkDigest } from '../lib/api/link-digest';
-import type { DigestLink, LinkDigestOptions, LinkDigestProgress } from '../lib/types';
-import { Icon } from '../components/Icon';
+import { For, Show, createMemo, createSignal, onCleanup, onMount, type Accessor } from 'solid-js';
+import { searchActorsTypeahead } from '../lib/api/bluesky';
+import { generateLinkDigest } from '../lib/api/link-digest';
+import type {
+  ActorSuggestion,
+  DigestLink,
+  LinkDigestOptions,
+  LinkDigestProgress,
+  LinkDigestStatusEvent
+} from '../lib/types';
+import { Icon, type IconKind } from '../components/Icon';
 
 const DEFAULT_OPTIONS: LinkDigestOptions = {
   actor: '',
@@ -24,8 +31,15 @@ type DigestSectionProps = {
   options: LinkDigestOptions;
   progress: LinkDigestProgress;
   progressText: string;
+  statusEvents: StatusItem[];
   updateOption: UpdateOption;
 };
+
+type StatusItem = { id: number; text: string };
+
+type DatePickerValue = { date: string; hour: number; minute: number };
+
+type MonthDay = { date: Date; inMonth: boolean; isoDate: string };
 
 export function LinkDigest() {
   const [options, setOptions] = createSignal(DEFAULT_OPTIONS);
@@ -33,16 +47,24 @@ export function LinkDigest() {
   const [progress, setProgress] = createSignal<LinkDigestProgress>({ completed: 0, phase: 'idle', total: 0 });
   const [error, setError] = createSignal('');
   const [isRunning, setIsRunning] = createSignal(false);
+  const [statusEvents, setStatusEvents] = createSignal<StatusItem[]>([]);
 
   const runDigest = async (event: SubmitEvent) => {
     event.preventDefault();
     setError('');
     setLinks([]);
+    setStatusEvents([]);
     setIsRunning(true);
 
     try {
-      const result = await buildLinkDigest(normalizedOptions(options()), setProgress);
-      setLinks(result.links);
+      for await (const statusEvent of generateLinkDigest(normalizedOptions(options()))) {
+        setProgress(progressFromEvent(statusEvent));
+        setStatusEvents((items) => [...items, { id: items.length + 1, text: statusText(statusEvent) }]);
+
+        if (statusEvent.type === 'done') {
+          setLinks(statusEvent.result.links);
+        }
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Digest failed');
     } finally {
@@ -64,7 +86,6 @@ export function LinkDigest() {
 
   return (
     <div class="px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full py-12 flex flex-col gap-14">
-      <Hero />
       <DigestSection
         error={error()}
         hasResults={hasResults()}
@@ -74,62 +95,10 @@ export function LinkDigest() {
         options={options()}
         progress={progress()}
         progressText={progressText()}
+        statusEvents={statusEvents()}
         updateOption={updateOption}
       />
     </div>
-  );
-}
-
-function Hero() {
-  return (
-    <section class="hero-graph -mx-[clamp(20px,4vw,56px)] px-[clamp(20px,4vw,56px)] pt-12 pb-8 max-w-none">
-      <div class="max-w-170 flex flex-col gap-5">
-        <Eyebrow />
-        <HeroTitle />
-        <p class="text-[17px] text-ink-muted leading-[1.7] max-w-140">
-          Skylynx scans the feeds of everyone an actor follows on Bluesky and surfaces the external links they share most
-          — a social reading digest built from your corner of the network.
-        </p>
-        <HeroStats />
-      </div>
-    </section>
-  );
-}
-
-function Eyebrow() {
-  return (
-    <span class="text-[11px] font-semibold tracking-widest uppercase text-accent px-2 py-0.75 rounded-full border border-tag-border bg-tag-bg">
-      AT Protocol
-    </span>
-  );
-}
-
-function HeroTitle() {
-  return (
-    <h1 class="text-[clamp(36px,5vw,56px)] leading-[1.08] tracking-[-0.02em] text-ink font-semibold">
-      What is your network
-      <br />
-      <em class="text-accent not-italic">reading right now?</em>
-    </h1>
-  );
-}
-
-function HeroStats() {
-  return (
-    <div class="flex items-center gap-6 text-[13px] text-ink-muted">
-      <HeroStat icon="users" label="Follows graph" />
-      <HeroStat icon="database" label="Cached locally" />
-      <HeroStat icon="lock" label="Public API only" />
-    </div>
-  );
-}
-
-function HeroStat(props: { icon: IconKind; label: string }) {
-  return (
-    <span class="flex items-center gap-1.5">
-      <Icon kind={props.icon} class="text-accent" />
-      {props.label}
-    </span>
   );
 }
 
@@ -173,8 +142,16 @@ function DigestControls(props: {
     <div class="bg-surface border border-border rounded-xl p-6 self-start flex flex-col gap-5">
       <form class="grid gap-3.5 grid-cols-2" onSubmit={props.onSubmit}>
         <ActorField options={props.options} onUpdate={(value) => props.updateOption('actor', value)} />
-        <DateTimeField kind="since" onUpdate={(value) => props.updateOption('since', value)} />
-        <DateTimeField kind="until" onUpdate={(value) => props.updateOption('until', value)} />
+        <DatePickerField
+          label="Since"
+          value={props.options.since}
+          onUpdate={(value) => props.updateOption('since', value)}
+        />
+        <DatePickerField
+          label="Until"
+          value={props.options.until}
+          onUpdate={(value) => props.updateOption('until', value)}
+        />
         <NumberField
           label="Max links"
           min={1}
@@ -247,6 +224,7 @@ function ResultsPanel(props: DigestSectionProps) {
       <StatusBar {...props} />
       <ErrorState error={props.error} />
       <EmptyState isEmpty={!props.hasResults && !props.isRunning && !props.error} />
+      <StatusFeed events={props.statusEvents} />
       <Show when={props.isRunning && !props.hasResults}>
         <Running />
       </Show>
@@ -306,6 +284,25 @@ function LinkResults(props: { links: DigestLink[] }) {
     <div class="flex flex-col divide-y divide-border-subtle overflow-y-auto">
       <For each={props.links}>{(link, index) => <LinkCard index={index()} link={link} />}</For>
     </div>
+  );
+}
+
+function StatusFeed(props: { events: StatusItem[] }) {
+  return (
+    <Show when={props.events.length > 0}>
+      <ol class="px-5 py-3 border-b border-border-subtle flex flex-col gap-1.5 max-h-36 overflow-y-auto">
+        <For each={props.events.slice(-6)}>{(event) => <StatusFeedItem event={event} />}</For>
+      </ol>
+    </Show>
+  );
+}
+
+function StatusFeedItem(props: { event: StatusItem }) {
+  return (
+    <li class="flex items-center gap-2 text-[12px] text-ink-muted">
+      <span class="size-1.5 rounded-full bg-accent shrink-0" />
+      <span>{props.event.text}</span>
+    </li>
   );
 }
 
@@ -413,37 +410,293 @@ function Running() {
   );
 }
 
-function DateTimeField(props: { kind: 'since' | 'until'; onUpdate: (value?: string) => void }) {
+function DatePickerField(props: { label: string; onUpdate: (value?: string) => void; value?: string }) {
+  const [container, setContainer] = createSignal<HTMLDivElement>();
+  const [isOpen, setIsOpen] = createSignal(false);
+  const [visibleMonth, setVisibleMonth] = createSignal(monthStart(props.value ? new Date(props.value) : new Date()));
+  const value = createMemo(() => localDatePickerValue(props.value));
+
+  const selectDate = (date: string) => {
+    const current = value() ?? defaultDatePickerValue();
+    props.onUpdate(localPickerToIso({ ...current, date }));
+  };
+
+  const updateTime = (part: 'hour' | 'minute', nextValue: number) => {
+    const current = value() ?? { ...defaultDatePickerValue(), date: localDateString(new Date()) };
+    props.onUpdate(localPickerToIso({ ...current, [part]: nextValue }));
+  };
+
+  const moveMonth = (delta: number) => setVisibleMonth(addMonths(visibleMonth(), delta));
+
+  onMount(() => {
+    const closeOnOutsidePointerDown = outsidePointerDownHandler(container, isOpen, () => setIsOpen(false));
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    onCleanup(() => document.removeEventListener('pointerdown', closeOnOutsidePointerDown));
+  });
+
   return (
-    <label>
-      <Show when={props.kind === 'since'} fallback="Until">
-        Since
+    <div ref={setContainer} class="relative flex flex-col gap-1.5 min-w-0">
+      <span class="text-[13px] text-ink-muted">{props.label}</span>
+      <DatePickerButton isOpen={isOpen()} label={props.label} value={value()} onToggle={() => setIsOpen(!isOpen())} />
+      <Show when={isOpen()}>
+        <DatePickerPopover
+          month={visibleMonth()}
+          onClear={() => props.onUpdate()}
+          onMoveMonth={moveMonth}
+          onSelectDate={selectDate}
+          onUpdateTime={updateTime}
+          selected={value()}
+        />
       </Show>
+    </div>
+  );
+}
+
+function DatePickerButton(props: { isOpen: boolean; label: string; onToggle: () => void; value?: DatePickerValue }) {
+  return (
+    <button
+      type="button"
+      class="bg-surface border border-border rounded-[7px] min-h-9.5 px-2.5 text-left text-ink flex items-center justify-between gap-2 w-full hover:border-ink-faint transition-colors duration-150"
+      aria-expanded={props.isOpen}
+      onClick={props.onToggle}>
+      <span class={props.value ? 'truncate' : 'truncate text-ink-muted'}>
+        {props.value ? formatPickerValue(props.value) : `Choose ${props.label.toLowerCase()}`}
+      </span>
+      <Icon kind="calendar" class="text-ink-muted" />
+    </button>
+  );
+}
+
+function DatePickerPopover(props: {
+  month: Date;
+  onClear: () => void;
+  onMoveMonth: (delta: number) => void;
+  onSelectDate: (date: string) => void;
+  onUpdateTime: (part: 'hour' | 'minute', value: number) => void;
+  selected?: DatePickerValue;
+}) {
+  return (
+    <div class="absolute left-0 top-full z-30 mt-2 w-80 max-w-[calc(100vw-3rem)] bg-surface-raised border border-border rounded-xl p-3 flex flex-col gap-3 shadow-[0_18px_48px_#00000066]">
+      <DatePickerHeader month={props.month} onMoveMonth={props.onMoveMonth} />
+      <CalendarGrid month={props.month} onSelectDate={props.onSelectDate} selectedDate={props.selected?.date} />
+      <TimeControls selected={props.selected} onClear={props.onClear} onUpdateTime={props.onUpdateTime} />
+    </div>
+  );
+}
+
+function DatePickerHeader(props: { month: Date; onMoveMonth: (delta: number) => void }) {
+  return (
+    <div class="flex items-center justify-between">
+      <IconButton icon="chevron-left" label="Previous month" onClick={() => props.onMoveMonth(-1)} />
+      <span class="text-[13px] font-semibold text-ink">{monthLabel(props.month)}</span>
+      <IconButton icon="chevron-right" label="Next month" onClick={() => props.onMoveMonth(1)} />
+    </div>
+  );
+}
+
+function IconButton(props: { icon: IconKind; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={props.label}
+      class="size-9 rounded-lg border border-border bg-surface flex items-center justify-center text-ink-muted hover:text-ink hover:border-ink-faint transition-colors duration-150"
+      onClick={props.onClick}>
+      <Icon kind={props.icon} />
+    </button>
+  );
+}
+
+function CalendarGrid(props: { month: Date; onSelectDate: (date: string) => void; selectedDate?: string }) {
+  const days = createMemo(() => calendarDays(props.month));
+
+  return (
+    <div class="grid grid-cols-7 gap-1">
+      <For each={WEEKDAYS}>{(day) => <CalendarWeekday day={day} />}</For>
+      <For each={days()}>
+        {(day) => <CalendarDay day={day} selectedDate={props.selectedDate} onSelect={props.onSelectDate} />}
+      </For>
+    </div>
+  );
+}
+
+function CalendarWeekday(props: { day: string }) {
+  return <div class="h-6 flex items-center justify-center text-[11px] text-ink-faint font-medium">{props.day}</div>;
+}
+
+function CalendarDay(props: { day: MonthDay; onSelect: (date: string) => void; selectedDate?: string }) {
+  const isSelected = () => props.selectedDate === props.day.isoDate;
+
+  return (
+    <button
+      type="button"
+      class={calendarDayClass(props.day, isSelected())}
+      onClick={() => props.onSelect(props.day.isoDate)}>
+      {props.day.date.getDate()}
+    </button>
+  );
+}
+
+function TimeControls(props: {
+  onClear: () => void;
+  onUpdateTime: (part: 'hour' | 'minute', value: number) => void;
+  selected?: DatePickerValue;
+}) {
+  return (
+    <div class="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+      <TimeNumber
+        label="Hour"
+        max={23}
+        value={props.selected?.hour ?? 0}
+        onUpdate={(value) => props.onUpdateTime('hour', value)}
+      />
+      <TimeNumber
+        label="Minute"
+        max={59}
+        value={props.selected?.minute ?? 0}
+        onUpdate={(value) => props.onUpdateTime('minute', value)}
+      />
+      <button
+        type="button"
+        class="h-9 px-3 rounded-lg border border-border bg-surface text-[13px] text-ink-muted hover:text-ink hover:border-ink-faint transition-colors duration-150"
+        onClick={props.onClear}>
+        Clear
+      </button>
+    </div>
+  );
+}
+
+function TimeNumber(props: { label: string; max: number; onUpdate: (value: number) => void; value: number }) {
+  return (
+    <label class="flex-1">
+      {props.label}
       <input
-        type="datetime-local"
-        onInput={(e) => {
-          const v = e.currentTarget.value;
-          props.onUpdate(isoDatetime(v));
-        }}
+        type="number"
+        min="0"
+        max={props.max}
+        value={props.value}
+        onInput={(event) => props.onUpdate(clampInteger(event.currentTarget.valueAsNumber, 0, props.max))}
       />
     </label>
   );
 }
 
 function ActorField(props: { options: LinkDigestOptions; onUpdate: (value: string) => void }) {
+  let requestId = 0;
+  const [container, setContainer] = createSignal<HTMLLabelElement>();
+  const [isOpen, setIsOpen] = createSignal(false);
+  const [isLoading, setIsLoading] = createSignal(false);
   const options = () => props.options;
+  const [suggestions, setSuggestions] = createSignal<ActorSuggestion[]>([]);
+
+  const search = debounce(async (query: string) => {
+    const currentRequestId = (requestId += 1);
+    const trimmed = query.trim();
+
+    if (trimmed.length < 2) {
+      setSuggestions([]);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    try {
+      const actors = await searchActorsTypeahead({ query: trimmed });
+      if (currentRequestId !== requestId) return;
+
+      setSuggestions(actors);
+      setIsOpen(true);
+    } catch {
+      if (currentRequestId !== requestId) return;
+      setSuggestions([]);
+    } finally {
+      if (currentRequestId === requestId) setIsLoading(false);
+    }
+  }, 250);
+
+  const updateActor = (value: string) => {
+    props.onUpdate(value);
+    search(value);
+  };
+
+  const selectActor = (actor: ActorSuggestion) => {
+    props.onUpdate(actor.handle);
+    setSuggestions([]);
+    setIsOpen(false);
+  };
+
+  onMount(() => {
+    const closeOnOutsidePointerDown = outsidePointerDownHandler(container, isOpen, () => setIsOpen(false));
+    document.addEventListener('pointerdown', closeOnOutsidePointerDown);
+    onCleanup(() => document.removeEventListener('pointerdown', closeOnOutsidePointerDown));
+  });
+
   return (
-    <label class="col-span-full">
+    <label ref={setContainer} class="col-span-full relative">
       Actor handle
-      <input
-        type="text"
-        autocomplete="off"
-        placeholder="handle.bsky.social"
-        required
-        value={options().actor}
-        onInput={(e) => props.onUpdate(e.currentTarget.value)}
-      />
+      <div class="relative">
+        <input
+          type="text"
+          autocomplete="off"
+          aria-autocomplete="list"
+          aria-expanded={isOpen()}
+          placeholder="handle.bsky.social"
+          required
+          value={options().actor}
+          onFocus={() => setIsOpen(suggestions().length > 0)}
+          onInput={(event) => updateActor(event.currentTarget.value)}
+        />
+        <Show when={isLoading()}>
+          <Icon kind="loader" class="absolute right-3 top-1/2 -translate-y-1/2 text-ink-muted animate-spin" />
+        </Show>
+      </div>
+      <Show when={isOpen() && suggestions().length > 0}>
+        <ActorSuggestions actors={suggestions()} onSelect={selectActor} />
+      </Show>
     </label>
+  );
+}
+
+function ActorSuggestions(props: { actors: ActorSuggestion[]; onSelect: (actor: ActorSuggestion) => void }) {
+  return (
+    <div class="absolute left-0 right-0 top-full z-30 mt-2 overflow-hidden rounded-xl border border-border bg-surface-raised shadow-[0_18px_48px_#00000066]">
+      <ul class="m-0 list-none p-1">
+        <For each={props.actors}>{(actor) => <ActorSuggestionItem actor={actor} onSelect={props.onSelect} />}</For>
+      </ul>
+    </div>
+  );
+}
+
+function ActorSuggestionItem(props: { actor: ActorSuggestion; onSelect: (actor: ActorSuggestion) => void }) {
+  return (
+    <li>
+      <button
+        type="button"
+        class="grid w-full grid-cols-[2rem_1fr] items-center gap-3 rounded-lg border-0 bg-transparent px-2.5 py-2 text-left hover:bg-accent-glow"
+        onClick={() => props.onSelect(props.actor)}>
+        <ActorAvatar actor={props.actor} />
+        <ActorSuggestionText actor={props.actor} />
+      </button>
+    </li>
+  );
+}
+
+function ActorAvatar(props: { actor: ActorSuggestion }) {
+  return (
+    <Show
+      when={props.actor.avatar}
+      fallback={<span class="flex size-8 items-center justify-center rounded-full bg-tag-bg text-[12px] text-accent">@</span>}>
+      {(avatar) => <img alt="" class="size-8 rounded-full object-cover" src={avatar()} />}
+    </Show>
+  );
+}
+
+function ActorSuggestionText(props: { actor: ActorSuggestion }) {
+  return (
+    <span class="min-w-0">
+      <span class="block truncate text-[13px] font-semibold text-ink">{props.actor.displayName || props.actor.handle}</span>
+      <span class="block truncate text-[12px] text-ink-muted">@{props.actor.handle}</span>
+    </span>
   );
 }
 
@@ -483,11 +736,115 @@ const normalizedOptions = (options: LinkDigestOptions): LinkDigestOptions => ({
   minShares: clampInteger(options.minShares, 1, 100_000)
 });
 
-const isoDatetime = (value: string) => {
-  if (!value) return;
-  return new Date(value).toISOString();
-};
-
 const digestTime = (value: string) => value.slice(11, 16) || value;
 const clampInteger = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, Math.trunc(value || min)));
+
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+
+const progressFromEvent = (event: LinkDigestStatusEvent): LinkDigestProgress => {
+  if (event.type === 'resolving-actor' || event.type === 'actor-resolved') {
+    return { completed: 0, phase: 'resolving', total: 0 };
+  }
+
+  if (event.type === 'loading-follows' || event.type === 'follows-loaded') {
+    return { completed: 0, phase: 'fetching-follows', total: event.type === 'follows-loaded' ? event.count : 0 };
+  }
+
+  if (event.type === 'fetching-feeds' || event.type === 'follow-feed-fetched') {
+    return { completed: event.completed, phase: 'fetching-feeds', total: event.total };
+  }
+
+  if (event.type === 'done') {
+    return { completed: event.result.follows.length, phase: 'done', total: event.result.follows.length };
+  }
+
+  return { completed: 0, phase: 'fetching-feeds', total: 0 };
+};
+
+const statusText = (event: LinkDigestStatusEvent) => {
+  if (event.type === 'resolving-actor') return `Resolving ${event.actor}`;
+  if (event.type === 'actor-resolved') return `Resolved @${event.actor.handle}`;
+  if (event.type === 'loading-follows')
+    return event.refresh ? 'Refreshing follows from Bluesky' : 'Checking follows cache';
+  if (event.type === 'follows-loaded') return `Loaded ${event.count} follows from ${event.source}`;
+  if (event.type === 'fetching-feeds') return `Starting feed scan for ${event.total} follows`;
+  if (event.type === 'follow-feed-fetched') return `@${event.follow.handle}: ${event.linkCount} links`;
+  if (event.type === 'caching-posts') return `Caching ${event.count} link shares`;
+  if (event.type === 'digest-ready') return `Ranked ${event.linkCount} links from ${event.postCount} shares`;
+  return 'Digest complete';
+};
+
+const localDatePickerValue = (iso?: string): DatePickerValue | undefined => {
+  if (!iso) return;
+
+  const date = new Date(iso);
+  return { date: localDateString(date), hour: date.getHours(), minute: date.getMinutes() };
+};
+
+const defaultDatePickerValue = (): DatePickerValue => {
+  const date = new Date();
+  return { date: localDateString(date), hour: 0, minute: 0 };
+};
+
+const localPickerToIso = (value: DatePickerValue) => {
+  return new Date(`${value.date}T${pad(value.hour)}:${pad(value.minute)}:00`).toISOString();
+};
+
+const localDateString = (date: Date) => {
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+};
+
+const pad = (value: number) => String(value).padStart(2, '0');
+const monthStart = (date: Date) => new Date(date.getFullYear(), date.getMonth(), 1);
+const addMonths = (date: Date, delta: number) => new Date(date.getFullYear(), date.getMonth() + delta, 1);
+const monthLabel = (date: Date) => new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' }).format(date);
+
+const calendarDays = (month: Date): MonthDay[] => {
+  const start = monthStart(month);
+  const first = new Date(start);
+  first.setDate(1 - start.getDay());
+
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(first);
+    date.setDate(first.getDate() + index);
+    return { date, inMonth: date.getMonth() === month.getMonth(), isoDate: localDateString(date) };
+  });
+};
+
+const calendarDayClass = (day: MonthDay, selected: boolean) => {
+  const base =
+    'h-9 min-w-0 rounded-lg text-[13px] flex items-center justify-center border tabular-nums transition-colors duration-120';
+  if (selected) return `${base} bg-accent text-bg border-accent font-semibold`;
+  if (!day.inMonth) return `${base} bg-transparent text-ink-faint border-transparent hover:text-ink-muted`;
+  return `${base} bg-surface text-ink border-border hover:border-accent hover:bg-accent-glow`;
+};
+
+const outsidePointerDownHandler = (container: Accessor<HTMLElement | undefined>, isOpen: Accessor<boolean>, close: () => void) => {
+  return (event: PointerEvent) => {
+    if (!isOpen()) return;
+    if (container()?.contains(event.target as Node)) return;
+
+    close();
+  };
+};
+
+const debounce = <Arguments extends unknown[]>(callback: (...args: Arguments) => void, delayMs: number) => {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+
+  return (...args: Arguments) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => callback(...args), delayMs);
+  };
+};
+
+const formatPickerValue = (value: DatePickerValue) => {
+  const date = new Date(`${value.date}T${pad(value.hour)}:${pad(value.minute)}:00`);
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(date);
+};

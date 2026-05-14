@@ -1,8 +1,14 @@
-import type { AppBskyActorDefs } from '@atcute/bluesky';
 import { cacheActor, cacheDigestRun, cacheExternalLinkPosts, cacheFollows, getCachedFollows } from '../db/database';
 import { fetchActorProfile, fetchAllFollows, fetchFollowExternalLinkPosts } from './bluesky';
 
-import type { DigestLink, ExternalLinkPost, Follow, LinkDigestOptions, LinkDigestProgress } from '../types';
+import type {
+  DigestLink,
+  ExternalLinkPost,
+  LinkDigestOptions,
+  LinkDigestProgress,
+  LinkDigestResult,
+  LinkDigestStatusEvent
+} from '../types';
 
 const AUTHOR_FEED_MAX_PARALLEL = 4;
 const AUTHOR_FEED_START_DELAY_MS = 100;
@@ -11,32 +17,63 @@ export const buildLinkDigest = async (
   options: LinkDigestOptions,
   progress: (progress: LinkDigestProgress) => void = () => {}
 ): Promise<LinkDigestResult> => {
-  progress({ completed: 0, phase: 'resolving', total: 0 });
+  let result: LinkDigestResult | undefined;
+
+  for await (const event of generateLinkDigest(options)) {
+    progress(progressFromEvent(event));
+    if (event.type === 'done') {
+      result = event.result;
+    }
+  }
+
+  if (!result) {
+    throw new Error('Digest did not complete');
+  }
+
+  return result;
+};
+
+export async function* generateLinkDigest(options: LinkDigestOptions): AsyncGenerator<LinkDigestStatusEvent, LinkDigestResult> {
+  yield { actor: options.actor, type: 'resolving-actor' };
   const actor = await fetchActorProfile(options.actor);
   await cacheActor(actor);
+  yield { actor, type: 'actor-resolved' };
 
-  progress({ completed: 0, phase: 'fetching-follows', total: 0 });
+  yield { actorDid: actor.did, refresh: options.refreshFollows, type: 'loading-follows' };
   const cachedFollows = options.refreshFollows ? [] : await getCachedFollows(actor.did);
   const follows = cachedFollows.length > 0 ? cachedFollows : await fetchAllFollows(actor.did);
   await cacheFollows(actor.did, follows);
+  yield { count: follows.length, source: cachedFollows.length > 0 ? 'cache' : 'network', type: 'follows-loaded' };
 
   let completed = 0;
-  progress({ completed, phase: 'fetching-feeds', total: follows.length });
-  const posts = await mapWithConcurrency(follows, AUTHOR_FEED_MAX_PARALLEL, async (follow, index) => {
-    await delay(index * AUTHOR_FEED_START_DELAY_MS);
-    const links = await fetchFollowExternalLinkPosts({
-      feedLimit: options.feedLimit,
-      follow,
-      maxPages: options.maxPages,
-      since: options.since,
-      until: options.until
-    });
-    completed += 1;
-    progress({ completed, phase: 'fetching-feeds', total: follows.length });
-    return links;
-  });
+  yield { completed, total: follows.length, type: 'fetching-feeds' };
 
-  const flatPosts = posts.flat();
+  const flatPosts: ExternalLinkPost[] = [];
+  for (let index = 0; index < follows.length; index += AUTHOR_FEED_MAX_PARALLEL) {
+    const batch = follows.slice(index, index + AUTHOR_FEED_MAX_PARALLEL);
+    const batchPosts = await Promise.all(
+      batch.map(async (follow, batchIndex) => {
+        await delay(batchIndex * AUTHOR_FEED_START_DELAY_MS);
+        const links = await fetchFollowExternalLinkPosts({
+          feedLimit: options.feedLimit,
+          follow,
+          maxPages: options.maxPages,
+          since: options.since,
+          until: options.until
+        });
+
+        return { follow, links };
+      })
+    );
+
+    for (const { follow, links } of batchPosts) {
+      flatPosts.push(...links);
+      completed += 1;
+      yield { completed, follow, linkCount: links.length, total: follows.length, type: 'follow-feed-fetched' };
+    }
+  }
+
+  yield { count: flatPosts.length, type: 'caching-posts' };
   await cacheExternalLinkPosts(flatPosts);
 
   const links = aggregateDigestLinks(flatPosts)
@@ -46,10 +83,13 @@ export const buildLinkDigest = async (
     .slice(0, options.limit);
 
   await cacheDigestRun({ actor: options.actor, actorDid: actor.did, linkCount: links.length, options });
-  progress({ completed: follows.length, phase: 'done', total: follows.length });
+  yield { linkCount: links.length, postCount: flatPosts.length, type: 'digest-ready' };
 
-  return { actor, follows, links, posts: flatPosts };
-};
+  const result = { actor, follows, links, posts: flatPosts };
+  yield { result, type: 'done' };
+
+  return result;
+}
 
 export const aggregateDigestLinks = (posts: ExternalLinkPost[]): DigestLink[] => {
   const byUri = new Map<string, DigestLink>();
@@ -111,32 +151,25 @@ const compareDigestLinks = (left: DigestLink, right: DigestLink) => {
   return left.uri.localeCompare(right.uri);
 };
 
-const mapWithConcurrency = async <Input, Output>(
-  items: Input[],
-  concurrency: number,
-  mapper: (item: Input, index: number) => Promise<Output>
-) => {
-  const results: Output[] = [];
-  let nextIndex = 0;
-
-  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
-    while (nextIndex < items.length) {
-      const index = nextIndex;
-      nextIndex += 1;
-      results[index] = await mapper(items[index], index);
-    }
-  });
-
-  await Promise.all(workers);
-  return results;
-};
-
 const distinctSorted = (items: string[]) => [...new Set(items)].toSorted();
 const delay = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
-type LinkDigestResult = {
-  actor: AppBskyActorDefs.ProfileViewDetailed;
-  follows: Follow[];
-  links: DigestLink[];
-  posts: ExternalLinkPost[];
+const progressFromEvent = (event: LinkDigestStatusEvent): LinkDigestProgress => {
+  if (event.type === 'resolving-actor' || event.type === 'actor-resolved') {
+    return { completed: 0, phase: 'resolving', total: 0 };
+  }
+
+  if (event.type === 'loading-follows' || event.type === 'follows-loaded') {
+    return { completed: 0, phase: 'fetching-follows', total: event.type === 'follows-loaded' ? event.count : 0 };
+  }
+
+  if (event.type === 'fetching-feeds' || event.type === 'follow-feed-fetched') {
+    return { completed: event.completed, phase: 'fetching-feeds', total: event.total };
+  }
+
+  if (event.type === 'done') {
+    return { completed: event.result.follows.length, phase: 'done', total: event.result.follows.length };
+  }
+
+  return { completed: 0, phase: 'fetching-feeds', total: 0 };
 };

@@ -13,6 +13,9 @@ export type IconKind =
   | 'check'
   | 'warning'
   | 'database'
+  | 'calendar'
+  | 'chevron-left'
+  | 'chevron-right'
   | 'user'
   | 'user-check'
   | 'x'
@@ -80,6 +83,21 @@ export function Icon(props: { kind: IconKind } & JSX.HTMLAttributes<HTMLSpanElem
       <Match when={local.kind === 'database'}>
         <span {...rest} class={`flex items-center ${rest.class ?? ''}`}>
           <i class="i-tabler-database" />
+        </span>
+      </Match>
+      <Match when={local.kind === 'calendar'}>
+        <span {...rest} class={`flex items-center ${rest.class ?? ''}`}>
+          <i class="i-tabler-calendar" />
+        </span>
+      </Match>
+      <Match when={local.kind === 'chevron-left'}>
+        <span {...rest} class={`flex items-center ${rest.class ?? ''}`}>
+          <i class="i-tabler-chevron-left" />
+        </span>
+      </Match>
+      <Match when={local.kind === 'chevron-right'}>
+        <span {...rest} class={`flex items-center ${rest.class ?? ''}`}>
+          <i class="i-tabler-chevron-right" />
         </span>
       </Match>
       <Match when={local.kind === 'user'}>
