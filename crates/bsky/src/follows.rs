@@ -1,4 +1,7 @@
-use super::{FollowsReportError, GetAuthorFeedOutput, GetFollowsOutput};
+use super::{
+    FollowsReportError, GetFollowsOutput,
+    author_feed::{AuthorFeedFetchOptions, AuthorFeedFilter, fetch_author_feed},
+};
 use atp_tools_core::run_parallel_rate_limited_with_progress;
 use atp_tools_core::{AtprotoClient, ClientError, ParallelConfig};
 use serde::{Deserialize, Serialize};
@@ -9,8 +12,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const REPORT_CACHE_VERSION: u8 = 2;
 const FOLLOW_SYNC_CACHE_VERSION: u8 = 1;
+// TODO: sync https://github.com/bluesky-social/atproto/blob/main/lexicons/app/bsky/graph/getFollows.json
 const FOLLOWS_METHOD: &str = "app.bsky.graph.getFollows";
-const AUTHOR_FEED_METHOD: &str = "app.bsky.feed.getAuthorFeed";
 const LAST_POST_MAX_PARALLEL: usize = 8;
 const LAST_POST_START_DELAY_MS: u64 = 50;
 const AUTHOR_FEED_LIMIT: u16 = 100;
@@ -368,17 +371,19 @@ struct LastPost {
 pub async fn fetch_actor_top_level_last_post(
     client: &AtprotoClient, actor: &str,
 ) -> Result<Option<ActorTopLevelPost>, ClientError> {
-    let query = vec![
-        ("actor", actor.to_string()),
-        ("limit", "1".to_string()),
-        ("filter", "posts_no_replies".to_string()),
-        ("includePins", "false".to_string()),
-    ];
-    let feed = client
-        .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
-        .await?;
+    let feed = fetch_author_feed(
+        client,
+        actor,
+        AuthorFeedFetchOptions {
+            limit: 1,
+            max_pages: 1,
+            filter: AuthorFeedFilter::PostsNoReplies,
+            include_pins: false,
+        },
+    )
+    .await?;
 
-    Ok(feed.feed.into_iter().find_map(|item| {
+    Ok(feed.into_iter().find_map(|item| {
         if item.reason.is_some() || item.reply.is_some() || item.post.author.did != actor {
             return None;
         }
@@ -396,66 +401,41 @@ pub async fn fetch_actor_top_level_last_post(
 }
 
 async fn fetch_last_post(client: &AtprotoClient, actor: &str) -> Result<Option<LastPost>, ClientError> {
-    let mut cursor: Option<String> = None;
+    let feed = fetch_author_feed(
+        client,
+        actor,
+        AuthorFeedFetchOptions {
+            limit: AUTHOR_FEED_LIMIT,
+            max_pages: AUTHOR_FEED_MAX_PAGES,
+            filter: AuthorFeedFilter::PostsWithReplies,
+            include_pins: false,
+        },
+    )
+    .await?;
 
-    for _ in 0..AUTHOR_FEED_MAX_PAGES {
-        let mut query = vec![
-            ("actor", actor.to_string()),
-            ("limit", AUTHOR_FEED_LIMIT.to_string()),
-            ("filter", "posts_with_replies".to_string()),
-            ("includePins", "false".to_string()),
-        ];
-        if let Some(cursor) = &cursor {
-            query.push(("cursor", cursor.clone()));
+    Ok(feed.into_iter().find_map(|item| {
+        if item.reason.is_some() || item.post.author.did != actor {
+            return None;
         }
 
-        let feed = client
-            .public_xrpc_query::<GetAuthorFeedOutput>(AUTHOR_FEED_METHOD, &query)
-            .await?;
+        let created_at = item
+            .post
+            .record
+            .get("createdAt")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or(&item.post.indexed_at)
+            .to_string();
+        let rkey = item
+            .post
+            .uri
+            .rsplit('/')
+            .next()
+            .filter(|rkey| !rkey.is_empty())
+            .map(str::to_string)?;
+        let handle = if item.post.author.handle.is_empty() { item.post.author.did } else { item.post.author.handle };
 
-        if let Some(post) = feed.feed.into_iter().find_map(|item| {
-            if item.reason.is_some() || item.post.author.did != actor {
-                return None;
-            }
-
-            let created_at = item
-                .post
-                .record
-                .get("createdAt")
-                .and_then(serde_json::Value::as_str)
-                .unwrap_or(&item.post.indexed_at)
-                .to_string();
-            let rkey = item
-                .post
-                .uri
-                .rsplit('/')
-                .next()
-                .filter(|rkey| !rkey.is_empty())
-                .map(str::to_string)?;
-            let handle =
-                if item.post.author.handle.is_empty() { item.post.author.did } else { item.post.author.handle };
-
-            Some(LastPost {
-                created_at,
-                rkey: rkey.clone(),
-                url: format!("https://bsky.app/profile/{handle}/post/{rkey}"),
-            })
-        }) {
-            return Ok(Some(post));
-        }
-
-        let Some(next_cursor) = feed.cursor else {
-            break;
-        };
-
-        if next_cursor.is_empty() {
-            break;
-        }
-
-        cursor = Some(next_cursor);
-    }
-
-    Ok(None)
+        Some(LastPost { created_at, rkey: rkey.clone(), url: format!("https://bsky.app/profile/{handle}/post/{rkey}") })
+    }))
 }
 
 pub fn hash_follows(follows: &[Follow]) -> String {

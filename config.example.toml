@@ -5,6 +5,10 @@ identifier = "did:plc:xg2vq45muivyy3xwatcehspu"
 public-api-base = "https://public.api.bsky.app"
 plc-directory-base = "https://plc.directory"
 
+# TODO: should be a table like [apps], with sub-tables for each app, e.g. [apps.link-digest]
 [link-digest]
-# Cron syntax. Controls when it is safe to recache the Bluesky follow list.
 follow-poll-cron = "0 0 * * *"
+# Minimum bookmark + repost + like score required for a link to appear.
+min-score = 3
+# Minimum number of distinct followed accounts that must share the same link.
+min-shares = 2

@@ -1,11 +1,19 @@
 use atp_tools_bsky::{
-    FollowLastPost, FollowsOptions, FollowsProgress, FollowsSort, FollowsSortDirection, FollowsSortField,
-    fetch_follows_report_with_progress,
+    AuthorFeedLinkOptions, ExternalLinkPost, FollowLastPost, FollowSyncOptions, FollowsOptions, FollowsProgress,
+    FollowsSort, FollowsSortDirection, FollowsSortField, fetch_follow_sync_with_progress,
+    fetch_follows_external_link_posts_with_progress, fetch_follows_report_with_progress,
 };
-use atp_tools_core::{ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, generate_serde_models, sync_lexicons};
+use atp_tools_core::{
+    ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, ParallelProgress, generate_serde_models, sync_lexicons,
+};
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::{Parser, Subcommand, ValueEnum};
-use std::{fs, path::PathBuf};
+use std::{
+    collections::BTreeMap,
+    fs,
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 mod echo;
 
@@ -167,6 +175,40 @@ enum MarginCommands {
 
 #[derive(Debug, Subcommand)]
 enum BskyCommands {
+    /// Generate a Markdown digest of links shared by followed accounts.
+    LinkDigest {
+        /// Handle or DID whose follows should be inspected. Defaults to identity.identifier in config.toml.
+        #[arg(long, value_name = "HANDLE_OR_DID")]
+        actor: Option<String>,
+
+        /// Only include posts at or after this ISO datetime.
+        #[arg(long, value_name = "ISO_DATETIME")]
+        since: Option<String>,
+
+        /// Only include posts before this ISO datetime.
+        #[arg(long, value_name = "ISO_DATETIME")]
+        until: Option<String>,
+
+        /// Minimum bookmark + repost + like score required for a link. Defaults to link-digest.min-score.
+        #[arg(long, value_name = "N")]
+        min_score: Option<i64>,
+
+        /// Minimum distinct followed accounts that must share the same link. Defaults to link-digest.min-shares.
+        #[arg(long, value_name = "N")]
+        min_shares: Option<usize>,
+
+        /// Number of author-feed posts to fetch per page.
+        #[arg(long, default_value_t = 100, value_name = "N")]
+        feed_limit: u16,
+
+        /// Maximum author-feed pages to fetch per follow.
+        #[arg(long, default_value_t = 5, value_name = "N")]
+        max_pages: usize,
+
+        /// Ignore the cached follow list and fetch fresh follows.
+        #[arg(long)]
+        refresh_follows: bool,
+    },
     /// Fetch follows and their latest posts.
     Follows {
         /// Handle or DID to inspect. Defaults to identity.identifier in config.toml.
@@ -288,6 +330,43 @@ async fn main() -> anyhow::Result<()> {
             }
         },
         Commands::Bsky { command } => match command {
+            BskyCommands::LinkDigest {
+                actor,
+                since,
+                until,
+                min_score,
+                min_shares,
+                feed_limit,
+                max_pages,
+                refresh_follows,
+            } => {
+                let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
+                let min_score = min_score.unwrap_or(config.link_digest.min_score);
+                let min_shares = min_shares.unwrap_or(config.link_digest.min_shares);
+                anyhow::ensure!(min_score >= 0, "minimum score must be greater than or equal to 0");
+                anyhow::ensure!(min_shares > 0, "minimum shares must be greater than 0");
+                let client = AtprotoClient::new(config.services)?;
+                let follows_options = FollowSyncOptions::default();
+                let sync = fetch_follow_sync_with_progress(
+                    &client,
+                    &actor,
+                    refresh_follows,
+                    follows_options,
+                    print_follows_progress,
+                )
+                .await?;
+                let link_options = AuthorFeedLinkOptions { since, until, limit: feed_limit, max_pages };
+                echo::status(format!("fetching author feeds for {} follows", sync.follows.len()));
+                let links = fetch_follows_external_link_posts_with_progress(
+                    client,
+                    sync.follows.clone(),
+                    link_options,
+                    print_author_feed_progress,
+                )
+                .await?;
+                echo::clear_status();
+                print_link_digest_markdown(links, min_score, min_shares);
+            }
             BskyCommands::Follows { actor, limit, sort, asc, desc, sort_ascending, sort_descending, refresh, json } => {
                 let actor = actor.unwrap_or_else(|| config.identity.identifier.clone());
                 let client = AtprotoClient::new(config.services)?;
@@ -415,6 +494,175 @@ fn print_follows_progress(progress: FollowsProgress) {
         FollowsProgress::WritingCache { path } => echo::status(format!("writing cache {}", path.display())),
         FollowsProgress::WroteCache { path } => echo::status(format!("wrote cache {}", path.display())),
     }
+}
+
+fn print_author_feed_progress(progress: ParallelProgress) {
+    if progress.completed == 1 || progress.completed == progress.total || progress.completed % 25 == 0 {
+        echo::progress("author feeds", progress.completed, progress.total);
+    }
+}
+
+#[derive(Debug, Clone)]
+struct DigestLink {
+    uri: String,
+    title: String,
+    description: String,
+    bookmark_count: i64,
+    repost_count: i64,
+    like_count: i64,
+    shares: Vec<ExternalLinkPost>,
+}
+
+impl DigestLink {
+    fn score(&self) -> i64 {
+        self.bookmark_count + self.repost_count + self.like_count
+    }
+
+    fn distinct_sharer_count(&self) -> usize {
+        self.distinct_sharers().len()
+    }
+
+    fn distinct_sharers(&self) -> Vec<String> {
+        let mut sharers = self
+            .shares
+            .iter()
+            .map(|share| share.shared_by.clone())
+            .collect::<Vec<_>>();
+        sharers.sort();
+        sharers.dedup();
+        sharers
+    }
+
+    fn first_seen(&self) -> &str {
+        self.shares
+            .iter()
+            .map(|share| share.shared_at.as_str())
+            .min()
+            .unwrap_or_default()
+    }
+
+    fn last_seen(&self) -> &str {
+        self.shares
+            .iter()
+            .map(|share| share.shared_at.as_str())
+            .max()
+            .unwrap_or_default()
+    }
+}
+
+fn print_link_digest_markdown(links: Vec<ExternalLinkPost>, min_score: i64, min_shares: usize) {
+    let mut digest_links = aggregate_digest_links(links)
+        .into_iter()
+        .filter(|link| link.score() >= min_score)
+        .filter(|link| link.distinct_sharer_count() >= min_shares)
+        .collect::<Vec<_>>();
+    digest_links.sort_by(|left, right| {
+        right
+            .distinct_sharer_count()
+            .cmp(&left.distinct_sharer_count())
+            .then_with(|| right.score().cmp(&left.score()))
+            .then_with(|| left.title.cmp(&right.title))
+            .then_with(|| left.uri.cmp(&right.uri))
+    });
+
+    println!("---");
+    println!("title: Social Links");
+    println!("date: {}", current_utc_date());
+    println!("---");
+    println!();
+
+    for link in &digest_links {
+        let title = if link.title.is_empty() { link.uri.as_str() } else { link.title.as_str() };
+        println!("## {}", markdown_plain_text(title));
+        println!();
+        println!("URL: <{}>", link.uri);
+        println!();
+        println!("Shared by:");
+        println!();
+        for sharer in link.distinct_sharers() {
+            println!("- @{sharer}");
+        }
+        println!();
+        println!("First seen: {}", digest_seen_time(link.first_seen()));
+        println!("Last seen: {}", digest_seen_time(link.last_seen()));
+        println!();
+    }
+}
+
+fn aggregate_digest_links(links: Vec<ExternalLinkPost>) -> Vec<DigestLink> {
+    let mut by_uri = BTreeMap::<String, DigestLink>::new();
+
+    for link in links {
+        let entry = by_uri.entry(link.external_uri.clone()).or_insert_with(|| DigestLink {
+            uri: link.external_uri.clone(),
+            title: link.title.clone(),
+            description: link.description.clone(),
+            bookmark_count: 0,
+            repost_count: 0,
+            like_count: 0,
+            shares: Vec::new(),
+        });
+
+        let already_counted_post = entry.shares.iter().any(|share| share.post_uri == link.post_uri);
+        let already_recorded_share = entry
+            .shares
+            .iter()
+            .any(|share| share.post_uri == link.post_uri && share.shared_by_did == link.shared_by_did);
+        if already_recorded_share {
+            continue;
+        }
+
+        if entry.title.is_empty() && !link.title.is_empty() {
+            entry.title = link.title.clone();
+        }
+        if entry.description.is_empty() && !link.description.is_empty() {
+            entry.description = link.description.clone();
+        }
+
+        if !already_counted_post {
+            entry.bookmark_count += link.bookmark_count;
+            entry.repost_count += link.repost_count;
+            entry.like_count += link.like_count;
+        }
+        entry.shares.push(link);
+    }
+
+    by_uri.into_values().collect()
+}
+
+fn digest_seen_time(value: &str) -> &str {
+    value
+        .get(11..16)
+        .filter(|time| time.as_bytes().get(2) == Some(&b':'))
+        .unwrap_or(value)
+}
+
+fn current_utc_date() -> String {
+    let days = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| (duration.as_secs() / 86_400) as i64)
+        .unwrap_or_default();
+    let (year, month, day) = civil_from_days(days);
+    format!("{year:04}-{month:02}-{day:02}")
+}
+
+fn civil_from_days(days_since_unix_epoch: i64) -> (i64, u32, u32) {
+    let z = days_since_unix_epoch + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = mp + if mp < 10 { 3 } else { -9 };
+    let year = y + if month <= 2 { 1 } else { 0 };
+
+    (year, month as u32, day as u32)
+}
+
+fn markdown_plain_text(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 fn write_margin_documents(output_dir: &PathBuf, documents: &[SourceNotesDocument]) -> anyhow::Result<Vec<String>> {

@@ -1,3 +1,8 @@
+// TODO: link_digest and follow - last post should be in an 'actions' module.
+// - actions/fetch_links_for_digest.rs
+// - actions/fetch_follow_last_post.rs
+
+mod author_feed;
 mod errors;
 pub mod follows;
 pub mod generated;
@@ -13,4 +18,5 @@ pub use follows::{
 pub use generated::*;
 pub use link_digest::{
     AuthorFeedLinkOptions, ExternalLinkPost, fetch_follow_external_link_posts, fetch_follows_external_link_posts,
+    fetch_follows_external_link_posts_with_progress,
 };
