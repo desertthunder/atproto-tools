@@ -7,7 +7,7 @@ pub mod records;
 
 pub use actor::{ActorProfileDetailed, ActorRepoInfo, RepoDescription};
 pub use client::{AtprotoClient, ClientError};
-pub use config::{AppConfig, ConfigError, IdentityConfig, ServiceConfig};
+pub use config::{AppConfig, ConfigError, IdentityConfig, LinkDigestConfig, ServiceConfig};
 pub use lex::codegen::{CodegenError, CodegenReport, generate_serde_models};
 pub use lex::sync::{LexiconSyncReport, LexiconSyncSpec, sync_lexicons};
 pub use parallel::{

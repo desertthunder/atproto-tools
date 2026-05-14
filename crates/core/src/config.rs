@@ -9,6 +9,8 @@ pub struct AppConfig {
     pub identity: IdentityConfig,
     #[serde(default)]
     pub services: ServiceConfig,
+    #[serde(default)]
+    pub link_digest: LinkDigestConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -39,9 +41,22 @@ impl Default for ServiceConfig {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub struct LinkDigestConfig {
+    pub follow_poll_cron: String,
+}
+
+impl Default for LinkDigestConfig {
+    fn default() -> Self {
+        Self { follow_poll_cron: "0 0 * * *".to_string() }
+    }
+}
+
 impl AppConfig {
-    pub const FIELD_NAMES: [&'static str; 3] = [
+    pub const FIELD_NAMES: [&'static str; 4] = [
         "identity.identifier",
+        "link-digest.follow-poll-cron",
         "services.public-api-base",
         "services.plc-directory-base",
     ];
@@ -78,6 +93,7 @@ impl AppConfig {
     pub fn set_field(&mut self, field: &str, value: String) -> Result<(), ConfigError> {
         match field {
             "identity.identifier" => self.identity.identifier = value,
+            "link-digest.follow-poll-cron" => self.link_digest.follow_poll_cron = value,
             "services.public-api-base" => self.services.public_api_base = value,
             "services.plc-directory-base" => self.services.plc_directory_base = value,
             _ => return Err(ConfigError::UnknownField(field.to_string())),
@@ -89,6 +105,7 @@ impl AppConfig {
     pub fn get_field(&self, field: &str) -> Result<&str, ConfigError> {
         match field {
             "identity.identifier" => Ok(&self.identity.identifier),
+            "link-digest.follow-poll-cron" => Ok(&self.link_digest.follow_poll_cron),
             "services.public-api-base" => Ok(&self.services.public_api_base),
             "services.plc-directory-base" => Ok(&self.services.plc_directory_base),
             _ => Err(ConfigError::UnknownField(field.to_string())),
@@ -122,4 +139,28 @@ fn default_config_path() -> Option<PathBuf> {
     let config_home = env::var_os("XDG_CONFIG_HOME").map(PathBuf::from);
     let base = config_home.or_else(|| env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")))?;
     Some(base.join("atproto-tools").join("config.toml"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn defaults_link_digest_follow_poll_cron_to_daily() {
+        assert_eq!(AppConfig::default().link_digest.follow_poll_cron, "0 0 * * *");
+    }
+
+    #[test]
+    fn sets_and_gets_link_digest_follow_poll_cron() {
+        let mut config = AppConfig::default();
+
+        config
+            .set_field("link-digest.follow-poll-cron", "0 */12 * * *".to_string())
+            .expect("set field");
+
+        assert_eq!(
+            config.get_field("link-digest.follow-poll-cron").expect("get field"),
+            "0 */12 * * *"
+        );
+    }
 }

@@ -303,6 +303,7 @@ async fn main() -> anyhow::Result<()> {
                     echo::pair("actor", &report.actor);
                     echo::pair("did", &report.actor_did);
                     echo::pair("follows", report.follows.len());
+                    echo::pair("followsHash", &report.follows_hash);
                     echo::pair("cache", report.cache_path.display());
                     print_follows(&report.follows);
                 }
@@ -328,7 +329,7 @@ fn follows_options(
         )
     };
 
-    FollowsOptions { limit, sort: FollowsSort { field: field.into(), direction } }
+    FollowsOptions { limit, sort: FollowsSort { field: field.into(), direction }, ..FollowsOptions::default() }
 }
 
 fn print_follows(follows: &[FollowLastPost]) {
@@ -392,6 +393,12 @@ fn print_follows_progress(progress: FollowsProgress) {
         FollowsProgress::CheckingCache { path } => echo::status(format!("checking cache {}", path.display())),
         FollowsProgress::CacheHit { path, count } => {
             echo::status(format!("cache hit: {count} follows from {}", path.display()));
+        }
+        FollowsProgress::CacheStale { path, generated_at_unix } => {
+            echo::status(format!(
+                "cache stale: {} generated at {generated_at_unix}",
+                path.display()
+            ));
         }
         FollowsProgress::ApplyingLimit { limit } => echo::status(format!("limiting to {limit} follows")),
         FollowsProgress::FetchingFollowsPage { page } => {

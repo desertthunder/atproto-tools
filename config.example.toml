@@ -4,3 +4,7 @@ identifier = "did:plc:xg2vq45muivyy3xwatcehspu"
 [services]
 public-api-base = "https://public.api.bsky.app"
 plc-directory-base = "https://plc.directory"
+
+[link-digest]
+# Cron syntax. Controls when it is safe to recache the Bluesky follow list.
+follow-poll-cron = "0 0 * * *"
