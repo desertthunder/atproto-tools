@@ -1,111 +1,242 @@
+@import 'tailwindcss';
+@plugin "@egoist/tailwindcss-icons";
+@plugin "@tailwindcss/forms";
+
+@theme {
+  --color-accent: #4a9eff;
+  --color-accent-dim: #2d7dd6;
+  --color-accent-glow: #4a9eff26;
+  --color-bg: #0d1117;
+  --color-surface: #161b22;
+  --color-surface-raised: #1c2330;
+  --color-border: #30363d;
+  --color-border-subtle: #21262d;
+  --color-danger: #f85149;
+  --color-ink: #e6edf3;
+  --color-ink-muted: #7d8590;
+  --color-ink-faint: #3d444d;
+  --color-tag-bg: #1a2840;
+  --color-tag-border: #2a4a6b;
+
+  --font-display: 'Lora', Georgia, serif;
+  --font-body: 'Public Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Google Sans Code', monospace;
+}
+
 :root {
-  --text: #6b6375;
-  --text-h: #08060d;
-  --bg: #fff;
-  --border: #e5e4e7;
-  --code-bg: #f4f3ec;
-  --accent: #aa3bff;
-  --accent-bg: rgba(170, 59, 255, 0.1);
-  --accent-border: rgba(170, 59, 255, 0.5);
-  --social-bg: rgba(244, 243, 236, 0.5);
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
-
-  --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
-  --mono: ui-monospace, Consolas, monospace;
-
-  font: 18px/145% var(--sans);
-  letter-spacing: 0.18px;
-  color-scheme: light dark;
-  color: var(--text);
-  background: var(--bg);
+  color: theme(--color-ink);
+  background: theme(--color-bg);
+  font: 15px/1.6 var(--font-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-
-  @media (max-width: 1024px) {
-    font-size: 16px;
-  }
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --text: #9ca3af;
-    --text-h: #f3f4f6;
-    --bg: #16171d;
-    --border: #2e303a;
-    --code-bg: #1f2028;
-    --accent: #c084fc;
-    --accent-bg: rgba(192, 132, 252, 0.15);
-    --accent-border: rgba(192, 132, 252, 0.5);
-    --social-bg: rgba(47, 48, 58, 0.5);
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
-  }
-
-  #social .button-icon {
-    filter: invert(1) brightness(2);
-  }
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
 }
 
+button,
+input,
+select {
+  font: inherit;
+}
+
+a {
+  color: inherit;
+}
+
 #root {
-  width: 1126px;
-  max-width: 100%;
-  margin: 0 auto;
-  text-align: center;
-  border-inline: 1px solid var(--border);
   min-height: 100svh;
   display: flex;
   flex-direction: column;
-  box-sizing: border-box;
 }
+
+/* ── Typography ─────────────────────────────── */
 
 h1,
-h2 {
-  font-family: var(--heading);
-  font-weight: 500;
-  color: var(--text-h);
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  text-wrap: balance;
 }
 
-h1 {
-  font-size: 56px;
-  letter-spacing: -1.68px;
-  margin: 32px 0;
-  @media (max-width: 1024px) {
-    font-size: 36px;
-    margin: 20px 0;
-  }
-}
-h2 {
-  font-size: 24px;
-  line-height: 118%;
-  letter-spacing: -0.24px;
-  margin: 0 0 8px;
-  @media (max-width: 1024px) {
-    font-size: 20px;
-  }
-}
 p {
   margin: 0;
+  text-wrap: pretty;
 }
 
-code,
-.counter {
-  font-family: var(--mono);
-  display: inline-flex;
+/* ── Form elements ──────────────────────────── */
+
+label:not(.check) {
+  @apply text-ink-muted grid text-[13px] font-medium gap-1.25 tracking-[0.01em] min-w-0;
+}
+
+input[type='text'],
+input[type='number'],
+input[type='datetime-local'],
+input[type='email'] {
+  @apply bg-surface border border-border rounded-[7px] text-ink min-h-9.5 px-2.5 py-0 w-full max-w-full;
+  overflow: hidden;
+  transition-property: border-color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+input[type='text']:focus,
+input[type='number']:focus,
+input[type='datetime-local']:focus,
+input[type='email']:focus {
+  @apply border-accent outline-none;
+  box-shadow: 0 0 0 3px theme(--color-accent-glow);
+}
+
+input:focus-visible,
+button:focus-visible,
+a:focus-visible {
+  outline: 2px solid theme(--color-accent);
+  outline-offset: 2px;
+}
+
+.check {
+  @apply flex items-center gap-2 text-ink-muted text-[13px] font-medium cursor-pointer;
+}
+
+.check input[type='checkbox'] {
+  @apply accent-accent rounded cursor-pointer;
+  min-height: auto;
+  width: 15px;
+  height: 15px;
+}
+
+.btn-primary {
+  @apply flex items-center justify-center gap-1.75 bg-accent text-bg font-semibold rounded-lg px-4 min-h-10.5 border-0 cursor-pointer text-[14px] tracking-[0.01em] w-full;
+  transition-property: background-color, transform, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.btn-primary:hover {
+  @apply bg-accent-dim;
+}
+
+.btn-primary:active {
+  transform: scale(0.97);
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: progress;
+  transform: none;
+}
+
+.btn-ghost {
+  @apply flex items-center gap-1.5 bg-transparent text-ink-muted font-medium rounded-[7px] px-2.5 min-h-8.5 border border-border cursor-pointer text-[13px];
+  transition-property: color, border-color, background-color;
+  transition-duration: 120ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.btn-ghost:hover {
+  @apply text-ink border-ink-faint bg-surface-raised;
+}
+
+progress {
+  @apply accent-accent;
+  inline-size: 160px;
+  block-size: 4px;
+  border-radius: 999px;
+}
+
+.tag {
+  @apply bg-tag-bg border border-tag-border rounded-full text-accent text-[12px] font-medium px-2.5 py-0.75;
+}
+
+/* ── Graph paper hero ───────────────────────── */
+
+.hero-graph {
+  --line: color-mix(in srgb, theme(--color-accent) 8%, transparent);
+  --line-strong: color-mix(in srgb, theme(--color-accent) 14%, transparent);
+  background-image:
+    linear-gradient(to bottom, transparent 70%, theme(--color-bg) 100%),
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px),
+    linear-gradient(var(--line-strong) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-strong) 1px, transparent 1px);
+  background-size:
+    100% 100%,
+    24px 24px,
+    24px 24px,
+    120px 120px,
+    120px 120px;
+}
+
+/* ── Follows sidebar ────────────────────────── */
+
+.follows-panel {
+  @apply fixed top-0 right-0 h-svh w-80 bg-surface border-l border-border flex flex-col z-50;
+  box-shadow: -8px 0 32px #00000050;
+}
+
+.follows-overlay {
+  @apply fixed inset-0 z-40;
+  background: color-mix(in srgb, theme(--color-bg) 60%, transparent);
+  backdrop-filter: blur(2px);
+}
+
+.tab-btn {
+  @apply flex-1 text-[13px] font-medium text-ink-muted py-2.5 px-4 border-0 bg-transparent cursor-pointer;
+  transition-property: color, box-shadow;
+  transition-duration: 150ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+  box-shadow: inset 0 -2px 0 transparent;
+}
+
+.tab-btn:hover {
+  @apply text-ink;
+}
+
+.tab-btn--active {
+  @apply text-accent;
+  box-shadow: inset 0 -2px 0 theme(--color-accent);
+}
+
+dl {
+  @apply grid gap-1.5 m-0;
+  grid-template-columns: repeat(3, 1fr);
+}
+
+dt {
+  @apply text-ink-muted text-[11px] font-medium uppercase tracking-[0.07em];
+}
+
+dd {
+  @apply font-semibold text-[15px] m-0 tabular-nums;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -600px 0;
+  }
+  100% {
+    background-position: 600px 0;
+  }
+}
+
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    theme(--color-surface) 25%,
+    theme(--color-surface-raised) 50%,
+    theme(--color-surface) 75%
+  );
+  background-size: 600px 100%;
+  animation: shimmer 1.6s infinite linear;
   border-radius: 4px;
-  color: var(--text-h);
-}
-
-code {
-  font-size: 15px;
-  line-height: 135%;
-  padding: 4px 8px;
-  background: var(--code-bg);
 }

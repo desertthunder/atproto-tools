@@ -1,0 +1,13 @@
+{
+    "name": "atproto-tools-workspace",
+    "private": true,
+    "type": "module",
+    "scripts": {
+        "dev:skylynx": "pnpm --filter skylynx dev",
+        "dev:social-graph": "pnpm --filter web dev",
+        "build:skylynx": "pnpm --filter skylynx build",
+        "build:social-graph": "pnpm --filter web build",
+        "check:social-graph": "pnpm --filter web check"
+    },
+    "packageManager": "pnpm@10.21.0"
+}
