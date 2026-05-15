@@ -85,8 +85,16 @@ pub enum ConfigCommands {
 pub enum Tool {
     Bsky,
     Margin,
+    Semble,
     #[value(alias = "tngl")]
     Tangled,
+}
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub enum LexiconLanguageArg {
+    Rust,
+    #[value(alias = "ts")]
+    TypeScript,
 }
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
@@ -130,10 +138,14 @@ pub enum LexiconCommands {
         #[arg(long = "file")]
         files: Vec<String>,
     },
-    /// Generate serde-compatible Rust models from local Lexicon JSON.
+    /// Generate models from local Lexicon JSON.
     Generate {
         /// Tool crate to generate models for.
         tool: Tool,
+
+        /// Generated language. Defaults to Rust except the Semble preset, which defaults to TypeScript.
+        #[arg(long, value_enum)]
+        language: Option<LexiconLanguageArg>,
 
         /// Local directory containing Lexicon JSON files. Defaults to the selected tool's lexicon directory.
         #[arg(long)]

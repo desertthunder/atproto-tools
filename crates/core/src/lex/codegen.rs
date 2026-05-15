@@ -11,8 +11,26 @@ pub struct CodegenReport {
     pub structs: Vec<String>,
 }
 
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub enum CodegenLanguage {
+    Rust,
+    TypeScript,
+}
+
 pub fn generate_serde_models(
     input_dir: impl AsRef<Path>, output: impl AsRef<Path>,
+) -> Result<CodegenReport, CodegenError> {
+    generate_models(input_dir, output, CodegenLanguage::Rust)
+}
+
+pub fn generate_typescript_models(
+    input_dir: impl AsRef<Path>, output: impl AsRef<Path>,
+) -> Result<CodegenReport, CodegenError> {
+    generate_models(input_dir, output, CodegenLanguage::TypeScript)
+}
+
+pub fn generate_models(
+    input_dir: impl AsRef<Path>, output: impl AsRef<Path>, language: CodegenLanguage,
 ) -> Result<CodegenReport, CodegenError> {
     let input_dir = input_dir.as_ref();
     let output = output.as_ref();
@@ -31,12 +49,27 @@ pub fn generate_serde_models(
 
     let ref_types = collect_ref_types(&lexicons)?;
     let mut structs = Vec::new();
-    let mut generated = String::from(
-        "// This file is generated from AT Protocol Lexicon JSON. Do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\n\n",
-    );
+    let mut generated = match language {
+        CodegenLanguage::Rust => String::from(
+            "// This file is generated from AT Protocol Lexicon JSON. Do not edit by hand.\n\nuse serde::{Deserialize, Serialize};\n\n",
+        ),
+        CodegenLanguage::TypeScript => {
+            let mut source =
+                String::from("// This file is generated from AT Protocol Lexicon JSON. Do not edit by hand.\n\n");
+            if uses_strong_ref(&lexicons) {
+                source.push_str("export type AtprotoStrongRef = {\n  uri: string;\n  cid: string;\n};\n\n");
+            }
+            source
+        }
+    };
 
     for (path, lexicon) in lexicons {
-        generate_lexicon(&lexicon, &path, &ref_types, &mut generated, &mut structs)?;
+        match language {
+            CodegenLanguage::Rust => generate_rust_lexicon(&lexicon, &path, &ref_types, &mut generated, &mut structs)?,
+            CodegenLanguage::TypeScript => {
+                generate_typescript_lexicon(&lexicon, &path, &ref_types, &mut generated, &mut structs)?;
+            }
+        }
     }
 
     if let Some(parent) = output.parent() {
@@ -83,7 +116,7 @@ fn collect_json_files(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), Codege
     Ok(())
 }
 
-fn generate_lexicon(
+fn generate_rust_lexicon(
     lexicon: &Value, path: &Path, ref_types: &BTreeMap<String, String>, output: &mut String, structs: &mut Vec<String>,
 ) -> Result<(), CodegenError> {
     let id = lexicon
@@ -123,6 +156,54 @@ fn generate_lexicon(
                 if let Some(schema) = def.get("output").and_then(|output| output.get("schema")) {
                     let struct_name = format!("{prefix}Output");
                     emit_struct(output, structs, ref_types, &prefix, &struct_name, None, schema)?;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+fn generate_typescript_lexicon(
+    lexicon: &Value, path: &Path, ref_types: &BTreeMap<String, String>, output: &mut String, structs: &mut Vec<String>,
+) -> Result<(), CodegenError> {
+    let id = lexicon
+        .get("id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "id" })?;
+    let defs = lexicon
+        .get("defs")
+        .and_then(Value::as_object)
+        .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "defs" })?;
+    let prefix = safe_type_name(&lexicon_prefix(id));
+
+    for (def_name, def) in defs {
+        let Some(kind) = def.get("type").and_then(Value::as_str) else {
+            continue;
+        };
+
+        match kind {
+            "record" => {
+                let record = def
+                    .get("record")
+                    .ok_or_else(|| CodegenError::MissingField { path: path.to_path_buf(), field: "record" })?;
+                emit_typescript_type(output, structs, ref_types, &prefix, &prefix, Some(id), record)?;
+            }
+            "object" => {
+                let type_name =
+                    if def_name == "main" { prefix.clone() } else { format!("{prefix}{}", pascal_case(def_name)) };
+                emit_typescript_type(output, structs, ref_types, &prefix, &type_name, None, def)?;
+            }
+            "query" | "procedure" => {
+                if let Some(parameters) = def.get("parameters") {
+                    let type_name = format!("{prefix}Params");
+                    emit_typescript_type(output, structs, ref_types, &prefix, &type_name, None, parameters)?;
+                }
+
+                if let Some(schema) = def.get("output").and_then(|output| output.get("schema")) {
+                    let type_name = format!("{prefix}Output");
+                    emit_typescript_type(output, structs, ref_types, &prefix, &type_name, None, schema)?;
                 }
             }
             _ => {}
@@ -208,6 +289,97 @@ fn rust_type(schema: &Value, ref_types: &BTreeMap<String, String>, lexicon_prefi
     }
 }
 
+fn emit_typescript_type(
+    output: &mut String, structs: &mut Vec<String>, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str,
+    type_name: &str, record_type: Option<&str>, object: &Value,
+) -> Result<(), CodegenError> {
+    let required = object
+        .get("required")
+        .and_then(Value::as_array)
+        .map(|values| values.iter().filter_map(Value::as_str).collect::<BTreeSet<_>>())
+        .unwrap_or_default();
+    let properties = object
+        .get("properties")
+        .and_then(Value::as_object)
+        .cloned()
+        .unwrap_or_else(serde_json::Map::new);
+
+    output.push_str(&format!("export type {type_name} = {{\n"));
+    if let Some(record_type) = record_type {
+        output.push_str(&format!("  '$type'?: '{}';\n", typescript_string_literal(record_type)));
+    }
+
+    let sorted = properties.into_iter().collect::<BTreeMap<_, _>>();
+    for (name, schema) in &sorted {
+        let optional = if required.contains(name.as_str()) { "" } else { "?" };
+        let field_type = typescript_type(schema, ref_types, lexicon_prefix);
+        output.push_str(&format!(
+            "  {}{}: {};\n",
+            typescript_property_name(name),
+            optional,
+            field_type
+        ));
+    }
+
+    output.push_str("};\n\n");
+    structs.push(type_name.to_string());
+
+    Ok(())
+}
+
+fn typescript_type(schema: &Value, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str) -> String {
+    if let Some(known_values) = schema.get("knownValues").and_then(Value::as_array) {
+        let values = known_values
+            .iter()
+            .filter_map(Value::as_str)
+            .map(|value| format!("'{}'", typescript_string_literal(value)))
+            .collect::<Vec<_>>();
+        if !values.is_empty() {
+            return values.join(" | ");
+        }
+    }
+
+    match schema.get("type").and_then(Value::as_str) {
+        Some("string") => "string".to_string(),
+        Some("integer") => "number".to_string(),
+        Some("boolean") => "boolean".to_string(),
+        Some("array") => {
+            let item_type = schema
+                .get("items")
+                .map(|items| typescript_type(items, ref_types, lexicon_prefix))
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("{item_type}[]")
+        }
+        Some("ref") => schema
+            .get("ref")
+            .and_then(Value::as_str)
+            .and_then(|reference| typescript_ref_type(reference, ref_types, lexicon_prefix))
+            .unwrap_or_else(|| "unknown".to_string()),
+        Some("union") => schema
+            .get("refs")
+            .and_then(Value::as_array)
+            .map(|refs| {
+                refs.iter()
+                    .filter_map(Value::as_str)
+                    .filter_map(|reference| typescript_ref_type(reference, ref_types, lexicon_prefix))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|refs| !refs.is_empty())
+            .map(|refs| refs.join(" | "))
+            .unwrap_or_else(|| "unknown".to_string()),
+        Some("object") => "Record<string, unknown>".to_string(),
+        _ => "unknown".to_string(),
+    }
+}
+
+fn typescript_ref_type(reference: &str, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str) -> Option<String> {
+    if reference == "com.atproto.repo.strongRef" || reference == "com.atproto.repo.strongRef#main" {
+        return Some("AtprotoStrongRef".to_string());
+    }
+
+    ref_type(reference, ref_types, lexicon_prefix)
+}
+
 fn ref_type(reference: &str, ref_types: &BTreeMap<String, String>, lexicon_prefix: &str) -> Option<String> {
     if let Some(rust_type) = ref_types.get(reference) {
         return Some(rust_type.clone());
@@ -258,11 +430,87 @@ fn collect_ref_types(lexicons: &[(PathBuf, Value)]) -> Result<BTreeMap<String, S
     Ok(refs)
 }
 
+fn uses_strong_ref(lexicons: &[(PathBuf, Value)]) -> bool {
+    lexicons.iter().any(|(_, lexicon)| value_contains_strong_ref(lexicon))
+}
+
+fn value_contains_strong_ref(value: &Value) -> bool {
+    match value {
+        Value::String(value) => value == "com.atproto.repo.strongRef" || value == "com.atproto.repo.strongRef#main",
+        Value::Array(values) => values.iter().any(value_contains_strong_ref),
+        Value::Object(values) => values.values().any(value_contains_strong_ref),
+        _ => false,
+    }
+}
+
 fn safe_type_name(name: &str) -> String {
     match name {
         "String" => "StringRecord".to_string(),
         _ => name.to_string(),
     }
+}
+
+fn typescript_property_name(name: &str) -> String {
+    if is_typescript_identifier(name) && !typescript_reserved_word(name) {
+        name.to_string()
+    } else {
+        format!("'{}'", typescript_string_literal(name))
+    }
+}
+
+fn is_typescript_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    if !(first == '_' || first == '$' || first.is_ascii_alphabetic()) {
+        return false;
+    }
+
+    chars.all(|ch| ch == '_' || ch == '$' || ch.is_ascii_alphanumeric())
+}
+
+fn typescript_reserved_word(name: &str) -> bool {
+    matches!(
+        name,
+        "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "debugger"
+            | "default"
+            | "delete"
+            | "do"
+            | "else"
+            | "export"
+            | "extends"
+            | "finally"
+            | "for"
+            | "function"
+            | "if"
+            | "import"
+            | "in"
+            | "instanceof"
+            | "new"
+            | "return"
+            | "super"
+            | "switch"
+            | "this"
+            | "throw"
+            | "try"
+            | "typeof"
+            | "var"
+            | "void"
+            | "while"
+            | "with"
+            | "yield"
+    )
+}
+
+fn typescript_string_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
 }
 
 fn lexicon_prefix(id: &str) -> String {
@@ -327,4 +575,59 @@ fn words(value: &str) -> Vec<String> {
     }
 
     words
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn generates_typescript_records_unions_and_strong_refs() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let input = dir.path().join("lexicons");
+        std::fs::create_dir(&input).expect("create input");
+        std::fs::write(
+            input.join("card.json"),
+            r##"{
+              "lexicon": 1,
+              "id": "network.cosmik.card",
+              "defs": {
+                "main": {
+                  "type": "record",
+                  "record": {
+                    "type": "object",
+                    "required": ["type", "content"],
+                    "properties": {
+                      "type": { "type": "string", "knownValues": ["URL", "NOTE"] },
+                      "content": { "type": "union", "refs": ["#urlContent", "#noteContent"] },
+                      "parentCard": { "type": "ref", "ref": "com.atproto.repo.strongRef" }
+                    }
+                  }
+                },
+                "urlContent": {
+                  "type": "object",
+                  "required": ["url"],
+                  "properties": { "url": { "type": "string" } }
+                },
+                "noteContent": {
+                  "type": "object",
+                  "required": ["text"],
+                  "properties": { "text": { "type": "string" } }
+                }
+              }
+            }"##,
+        )
+        .expect("write lexicon");
+
+        let output = dir.path().join("generated.ts");
+        let report = generate_typescript_models(&input, &output).expect("generate typescript");
+        let source = std::fs::read_to_string(output).expect("read generated typescript");
+
+        assert_eq!(report.structs, ["Card", "CardNoteContent", "CardUrlContent"]);
+        assert!(source.contains("export type AtprotoStrongRef = {"));
+        assert!(source.contains("'$type'?: 'network.cosmik.card';"));
+        assert!(source.contains("content: CardUrlContent | CardNoteContent;"));
+        assert!(source.contains("parentCard?: AtprotoStrongRef;"));
+        assert!(source.contains("type: 'URL' | 'NOTE';"));
+    }
 }

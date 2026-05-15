@@ -4,7 +4,8 @@ use atp_tools_bsky::{
     fetch_follows_external_link_posts_with_progress, fetch_follows_report_with_progress,
 };
 use atp_tools_core::{
-    ActorRepoInfo, AppConfig, AtprotoClient, LexiconSyncSpec, ParallelProgress, generate_serde_models, sync_lexicons,
+    ActorRepoInfo, AppConfig, AtprotoClient, CodegenLanguage, LexiconSyncSpec, ParallelProgress, generate_models,
+    sync_lexicons,
 };
 use atp_tools_margin::{SourceNotesDocument, export_notes, export_source_notes};
 use clap::Parser;
@@ -15,7 +16,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 mod args;
 mod echo;
 
-use args::{BskyCommands, Cli, Commands, ConfigCommands, FollowsSortFieldArg, LexiconCommands, MarginCommands, Tool};
+use args::{
+    BskyCommands, Cli, Commands, ConfigCommands, FollowsSortFieldArg, LexiconCommands, LexiconLanguageArg,
+    MarginCommands, Tool,
+};
 
 impl From<FollowsSortFieldArg> for FollowsSortField {
     fn from(field: FollowsSortFieldArg) -> Self {
@@ -81,10 +85,13 @@ async fn main() -> anyhow::Result<()> {
                     .collect::<Vec<_>>();
                 echo::list("written", &written);
             }
-            LexiconCommands::Generate { tool, input, output } => {
+            LexiconCommands::Generate { tool, language, input, output } => {
                 let input = input.unwrap_or_else(|| default_lexicon_input(tool));
-                let output = output.unwrap_or_else(|| default_generated_output(tool));
-                let report = generate_serde_models(input, output)?;
+                let language = language
+                    .map(codegen_language)
+                    .unwrap_or_else(|| default_codegen_language(tool));
+                let output = output.unwrap_or_else(|| default_generated_output(tool, language));
+                let report = generate_models(input, output, language)?;
                 echo::pair("output", report.output.display());
                 echo::list("structs", &report.structs);
             }
@@ -466,15 +473,33 @@ fn default_lexicon_input(tool: Tool) -> PathBuf {
     match tool {
         Tool::Bsky => PathBuf::from("lexicons/app/bsky"),
         Tool::Margin => PathBuf::from("lexicons/at/margin"),
+        Tool::Semble => PathBuf::from("lexicons/network/cosmik"),
         Tool::Tangled => PathBuf::from("lexicons/sh/tangled"),
     }
 }
 
-fn default_generated_output(tool: Tool) -> PathBuf {
+fn default_codegen_language(tool: Tool) -> CodegenLanguage {
     match tool {
-        Tool::Bsky => PathBuf::from("crates/bsky/src/generated.rs"),
-        Tool::Margin => PathBuf::from("crates/margin/src/generated.rs"),
-        Tool::Tangled => PathBuf::from("crates/tngl/src/generated.rs"),
+        Tool::Semble => CodegenLanguage::TypeScript,
+        Tool::Bsky | Tool::Margin | Tool::Tangled => CodegenLanguage::Rust,
+    }
+}
+
+fn codegen_language(language: LexiconLanguageArg) -> CodegenLanguage {
+    match language {
+        LexiconLanguageArg::Rust => CodegenLanguage::Rust,
+        LexiconLanguageArg::TypeScript => CodegenLanguage::TypeScript,
+    }
+}
+
+fn default_generated_output(tool: Tool, language: CodegenLanguage) -> PathBuf {
+    match (tool, language) {
+        (Tool::Bsky, CodegenLanguage::Rust) => PathBuf::from("crates/bsky/src/generated.rs"),
+        (Tool::Margin, CodegenLanguage::Rust) => PathBuf::from("crates/margin/src/generated.rs"),
+        (Tool::Tangled, CodegenLanguage::Rust) => PathBuf::from("crates/tngl/src/generated.rs"),
+        (Tool::Semble, CodegenLanguage::TypeScript) => PathBuf::from("apps/skylynx/src/lib/types/semble.ts"),
+        (Tool::Semble, CodegenLanguage::Rust) => PathBuf::from("generated.rs"),
+        (_, CodegenLanguage::TypeScript) => PathBuf::from("generated.ts"),
     }
 }
 
@@ -504,6 +529,20 @@ fn default_lexicon_sync_spec(tool: Tool, commit: String) -> LexiconSyncSpec {
                 "collectionItem.json".to_string(),
                 "like.json".to_string(),
                 "note.json".to_string(),
+            ],
+            preserve_paths: false,
+        },
+        Tool::Semble => LexiconSyncSpec {
+            repo: "cosmik-network/semble".to_string(),
+            commit,
+            source_path: "src/modules/atproto/infrastructure/lexicons".to_string(),
+            dest_dir: PathBuf::from("lexicons/network/cosmik"),
+            files: vec![
+                "defs.json".to_string(),
+                "card.json".to_string(),
+                "collection.json".to_string(),
+                "collectionLink.json".to_string(),
+                "collectionLinkRemoval.json".to_string(),
             ],
             preserve_paths: false,
         },

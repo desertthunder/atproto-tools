@@ -1,0 +1,144 @@
+{
+  "defs": {
+    "main": {
+      "description": "A record representing a card with content.",
+      "key": "tid",
+      "record": {
+        "properties": {
+          "content": {
+            "description": "The specific content of the card, determined by the card type.",
+            "refs": [
+              "#urlContent",
+              "#noteContent"
+            ],
+            "type": "union"
+          },
+          "createdAt": {
+            "description": "Timestamp when this card was created (usually set by PDS).",
+            "format": "datetime",
+            "type": "string"
+          },
+          "originalCard": {
+            "description": "Optional strong reference to the original card (for NOTE cards).",
+            "ref": "com.atproto.repo.strongRef",
+            "type": "ref"
+          },
+          "parentCard": {
+            "description": "Optional strong reference to a parent card (for NOTE cards).",
+            "ref": "com.atproto.repo.strongRef",
+            "type": "ref"
+          },
+          "provenance": {
+            "description": "Optional provenance information for this card.",
+            "ref": "network.cosmik.defs#provenance",
+            "type": "ref"
+          },
+          "type": {
+            "description": "The type of card",
+            "knownValues": [
+              "URL",
+              "NOTE"
+            ],
+            "type": "string"
+          },
+          "url": {
+            "description": "Optional URL associated with the card. Required for URL cards, optional for NOTE cards.",
+            "format": "uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "content"
+        ],
+        "type": "object"
+      },
+      "type": "record"
+    },
+    "noteContent": {
+      "description": "Content structure for a note card.",
+      "properties": {
+        "text": {
+          "description": "The note text content",
+          "maxLength": 10000,
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ],
+      "type": "object"
+    },
+    "urlContent": {
+      "description": "Content structure for a URL card.",
+      "properties": {
+        "metadata": {
+          "description": "Optional metadata about the URL",
+          "ref": "#urlMetadata",
+          "type": "ref"
+        },
+        "url": {
+          "description": "The URL being saved",
+          "format": "uri",
+          "type": "string"
+        }
+      },
+      "required": [
+        "url"
+      ],
+      "type": "object"
+    },
+    "urlMetadata": {
+      "description": "Metadata about a URL.",
+      "properties": {
+        "author": {
+          "description": "Author of the content",
+          "type": "string"
+        },
+        "description": {
+          "description": "Description of the page",
+          "type": "string"
+        },
+        "doi": {
+          "description": "Digital Object Identifier (DOI) for academic content",
+          "type": "string"
+        },
+        "imageUrl": {
+          "description": "URL of a representative image",
+          "format": "uri",
+          "type": "string"
+        },
+        "isbn": {
+          "description": "International Standard Book Number (ISBN) for books",
+          "type": "string"
+        },
+        "publishedDate": {
+          "description": "When the content was published",
+          "format": "datetime",
+          "type": "string"
+        },
+        "retrievedAt": {
+          "description": "When the metadata was retrieved",
+          "format": "datetime",
+          "type": "string"
+        },
+        "siteName": {
+          "description": "Name of the site",
+          "type": "string"
+        },
+        "title": {
+          "description": "Title of the page",
+          "type": "string"
+        },
+        "type": {
+          "description": "Type of content (e.g., 'video', 'article')",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  "description": "A single record type for all cards.",
+  "id": "network.cosmik.card",
+  "lexicon": 1
+}

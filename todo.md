@@ -1,4 +1,76 @@
 # Parking Lot
 
-- [ ] Make a client-side SPA that does the link digest with the atproto-sdk or atcute
-  - Solid, Solid Router, Tailwind
+- [ ] Ship Skylynx v1 as a client-side reading inbox for Bluesky links
+  - Product boundary
+    - Position Skylynx as discovery and triage for building a reading list from the signed-in user's Bluesky following graph
+    - Keep all digest processing, cache state, triage state, and history in the browser
+    - Do not add a backend, server-side digest jobs, background workers, notifications, or hosted sync
+    - Do not add AI features, summaries, embeddings, semantic search, or model-backed ranking
+    - Treat Semble as an ATProto record target only; do not build Semble client behavior
+  - Semble protocol integration
+    - [x] Add typed support for `network.cosmik.card`
+    - [x] Add typed support for `network.cosmik.collection`
+    - [x] Add typed support for `network.cosmik.collectionLink`
+    - [ ] List owned `network.cosmik.collection` records for the signed-in user
+    - [ ] Let the user optionally choose one owned collection as the save target
+    - [ ] Save a digest link by creating a `network.cosmik.card` URL record in the user's repo
+    - [ ] Populate card metadata from digest data: title, description, image URL, and retrieved timestamp
+    - [ ] If a collection is selected, create a `network.cosmik.collectionLink` for the saved card
+    - [ ] Detect already-saved links by conservative URL match against owned URL cards
+    - [ ] Show `Saved` state for already-saved digest links
+    - [ ] Offer `Add to collection` when a URL card already exists but is not linked to the selected collection
+    - [ ] Provide an "Open in Semble" fallback when direct record writes fail
+    - [ ] Exclude Semble collection creation, editing, deletion, card deletion, collaboration, and open collection workflows from v1
+  - Local triage state
+    - [ ] Add local read state keyed by normalized URL
+    - [ ] Add local dismissed state keyed by normalized URL
+    - [ ] Keep read and dismissed state local; only saving writes ATProto records
+    - [ ] Preserve read, dismissed, saved, and opened states across digest runs
+    - [ ] Add filters for all, unsaved, saved, unread, and dismissed links
+  - Cache strategy
+    - [ ] Promote cached author feed scans into reusable source data across digest runs
+    - [ ] Store per-author scan metadata: last checked time, covered window, latest known boundary, stale/incomplete status, and failed status
+    - [ ] Reuse cached author scans when they satisfy the selected digest window and freshness rules
+    - [ ] Backfill only missing author windows when the user requests older or larger digest windows
+    - [ ] Default digest window to "since last successful digest"; use the last 7 days for first run
+    - [ ] Store `lastSuccessfulDigestAt` per signed-in actor
+    - [ ] Keep completed digest history as immutable snapshots
+    - [ ] Cache owned Semble collections and URL cards with visible freshness
+    - [ ] Refresh Semble cache on sign-in, after save, and by manual refresh
+    - [ ] Cache follows graph with visible freshness and manual refresh
+    - [ ] Add a destructive settings action to clear local Skylynx data
+  - Request management
+    - [ ] Reduce default Bluesky feed request concurrency to a conservative browser-safe value
+    - [ ] Target roughly 4-6 feed requests in flight, 8-12 requests per second, and 8-12 author scans in flight
+    - [ ] Add backoff and retry handling for 429 and transient 5xx responses
+    - [ ] Show throttled/retrying status while scans are backing off
+    - [ ] Keep pause/resume from scheduling new requests after pause is requested
+    - [ ] Show how many authors will be fetched versus reused before starting a scan
+    - [ ] Show scan summaries with reused authors, fetched authors, failed authors, and links found
+  - Long-running scan recovery
+    - [ ] Treat scans as resumable jobs stored in IndexedDB
+    - [ ] Resume paused or interrupted scans after tab close/reopen
+    - [ ] Record failed authors separately from successful author scans
+    - [ ] Allow a digest to complete with warnings when some authors fail
+    - [ ] Allow rerunning only failed or stale authors
+    - [ ] Preview partial results while scanning and clearly mark them as incomplete
+  - Ranking and result quality
+    - [ ] Rank by unique sharer count first
+    - [ ] Use combined bookmark, repost, and like counts as the secondary score
+    - [ ] Use recency of last share as the tertiary ranking factor
+    - [ ] Keep ranking inspectable; do not add ML, custom source weights, topic clustering, or semantic ranking
+    - [ ] Show why each result ranked: share count, last shared time, engagement score, and sharers
+  - Reading inbox UI
+    - [ ] Make the digest result list the primary workspace
+    - [ ] Show title, domain/source, description, image, sharers, share count, and ranking explanation on each link card
+    - [ ] Add link actions: open, save, dismiss, and read
+    - [ ] Visually distinguish saved, read, and dismissed states
+    - [ ] Add a Semble/protocol sidebar section for selected collection, saved count, and refresh status
+    - [ ] Keep the network panel secondary to the reading inbox workflow
+  - Privacy and data copy
+    - [ ] State that digest scanning and cache storage happen in the browser
+    - [ ] State that Skylynx does not run a backend for digest processing
+    - [ ] State that Bluesky/ATProto APIs receive profile, follows, feed, and Semble record write requests
+    - [ ] State that local cache clearing does not delete Semble records
+    - [ ] State that signing out removes the local session but does not remove already-written ATProto records
+    - [ ] Avoid claiming saved Semble cards are private unless Semble's protocol model guarantees it

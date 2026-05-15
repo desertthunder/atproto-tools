@@ -8,7 +8,9 @@ pub mod records;
 pub use actor::{ActorProfileDetailed, ActorRepoInfo, RepoDescription};
 pub use client::{AtprotoClient, ClientError};
 pub use config::{AppConfig, ConfigError, IdentityConfig, LinkDigestConfig, ServiceConfig};
-pub use lex::codegen::{CodegenError, CodegenReport, generate_serde_models};
+pub use lex::codegen::{
+    CodegenError, CodegenLanguage, CodegenReport, generate_models, generate_serde_models, generate_typescript_models,
+};
 pub use lex::sync::{LexiconSyncReport, LexiconSyncSpec, sync_lexicons};
 pub use parallel::{
     ParallelConfig, ParallelProgress, ParallelTaskError, run_parallel_rate_limited,
