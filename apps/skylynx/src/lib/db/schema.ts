@@ -38,7 +38,7 @@ export type RelationshipEdge = {
 
 export type CachedAuthorActivity = AuthorActivity & { updatedAt: string };
 
-export type ExternalLink = { description: string; title: string; updatedAt: string; uri: string };
+export type ExternalLink = { description: string; ogImageUri?: string; title: string; updatedAt: string; uri: string };
 
 export type LinkShare = ExternalLinkPost & { id: string; updatedAt: string };
 
@@ -120,7 +120,13 @@ export const relationshipEdgeFromAccount = (
 };
 
 export const externalLinkFromPost = (post: ExternalLinkPost, updatedAt = new Date().toISOString()): ExternalLink => {
-  return { description: post.description, title: post.title, updatedAt, uri: post.externalUri };
+  return {
+    description: post.description,
+    ogImageUri: post.ogImageUri,
+    title: post.title,
+    updatedAt,
+    uri: post.externalUri
+  };
 };
 
 export const linkShareFromPost = (post: ExternalLinkPost, updatedAt = new Date().toISOString()): LinkShare => {

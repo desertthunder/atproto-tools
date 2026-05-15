@@ -28,6 +28,7 @@ export type ExternalLinkPost = {
   externalUri: string;
   indexedAt: string;
   likeCount: number;
+  ogImageUri?: string;
   postUri: string;
   repostCount: number;
   sharedAt: string;
@@ -42,6 +43,7 @@ export type DigestLink = {
   firstSeen: string;
   lastSeen: string;
   likeCount: number;
+  ogImageUri?: string;
   repostCount: number;
   score: number;
   shares: ExternalLinkPost[];

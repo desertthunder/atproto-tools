@@ -72,8 +72,6 @@ p {
   text-wrap: pretty;
 }
 
-/* ── Form elements ──────────────────────────── */
-
 label:not(.check) {
   @apply text-ink-muted grid text-[13px] font-medium gap-1.25 tracking-[0.01em] min-w-0;
 }
@@ -168,8 +166,6 @@ progress {
   @apply bg-tag-bg border border-tag-border rounded-full text-accent text-[12px] font-medium px-2.5 py-0.75;
 }
 
-/* ── Graph paper hero ───────────────────────── */
-
 .hero-graph {
   --line: color-mix(in srgb, theme(--color-accent) 8%, transparent);
   --line-strong: color-mix(in srgb, theme(--color-accent) 14%, transparent);
@@ -186,66 +182,82 @@ progress {
     120px 120px;
 }
 
-/* ── Auth and relationships ─────────────────── */
-
 .auth-strip {
   @apply bg-surface border border-border rounded-xl px-5 py-4 flex items-center justify-between gap-4;
 }
 
-.digest-grid {
-  @apply grid gap-5;
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) minmax(300px, 340px);
+.app-route {
+  @apply flex h-[calc(100svh-105px)] min-h-0 w-full flex-col gap-4 px-[clamp(16px,2.5vw,32px)] py-4;
 }
 
-.digest-grid--network-collapsed {
-  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr) 64px;
+.app-workspace {
+  @apply grid min-h-0 flex-1 gap-4;
+  grid-template-columns: minmax(320px, 380px) minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.app-workspace-title {
+  @apply col-span-full flex items-center gap-2.5;
+}
+
+.app-sidebar,
+.app-results {
+  @apply min-h-0 overflow-hidden rounded-xl border border-border bg-surface;
+}
+
+.app-sidebar {
+  @apply flex flex-col;
+}
+
+.app-results {
+  @apply flex flex-col;
+}
+
+.sidebar-tabs {
+  @apply grid grid-cols-3 border-b border-border bg-surface-raised p-1.5;
+}
+
+.sidebar-tab {
+  @apply flex min-h-9 items-center justify-center gap-1.5 rounded-[7px] border-0 bg-transparent px-3 text-[13px] font-semibold text-ink-muted;
+  transition-property: color, background-color;
+  transition-duration: 140ms;
+  transition-timing-function: cubic-bezier(0.2, 0, 0, 1);
+}
+
+.sidebar-tab:hover {
+  @apply text-ink;
+}
+
+.sidebar-tab--active {
+  @apply bg-accent-glow text-accent;
 }
 
 .relationships-panel {
-  @apply bg-surface border border-border rounded-xl flex flex-col min-h-120 overflow-hidden;
-}
-
-.relationships-collapsed {
-  @apply flex h-full min-h-120 flex-col items-center gap-4 px-2 py-4;
-}
-
-.vertical-label {
-  writing-mode: vertical-rl;
-  @apply max-h-52 truncate text-[11px] text-ink-muted;
+  @apply flex h-full min-h-0 flex-col overflow-hidden;
 }
 
 @media (max-width: 1180px) and (min-width: 901px) {
-  .digest-grid,
-  .digest-grid--network-collapsed {
-    grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
-  }
-
-  .digest-grid > .relationships-panel {
-    grid-column: 1 / -1;
-    min-height: 26rem;
-  }
-
-  .digest-grid--network-collapsed > .relationships-panel {
-    min-height: 4rem;
-  }
-
-  .digest-grid--network-collapsed .relationships-collapsed {
-    @apply min-h-0 flex-row justify-between px-4 py-3;
-  }
-
-  .digest-grid--network-collapsed .vertical-label {
-    writing-mode: horizontal-tb;
+  .app-workspace {
+    grid-template-columns: minmax(300px, 340px) minmax(0, 1fr);
   }
 }
 
 @media (max-width: 720px) {
+  .app-route {
+    @apply h-auto min-h-[calc(100svh-105px)];
+  }
+
   .auth-strip {
     @apply flex-col items-stretch;
   }
 
-  .digest-grid,
-  .digest-grid--network-collapsed {
+  .app-workspace {
     grid-template-columns: 1fr;
+    grid-template-rows: auto auto minmax(32rem, 1fr);
+  }
+
+  .app-sidebar {
+    min-height: 32rem;
   }
 }
 

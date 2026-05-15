@@ -175,6 +175,7 @@ const extractExternalLinkPost = (item: AppBskyFeedDefs.FeedViewPost, follow: Fol
     externalUri: embed.external.uri,
     indexedAt: item.post.indexedAt,
     likeCount: item.post.likeCount ?? 0,
+    ogImageUri: embed.external.thumb,
     postUri: item.post.uri,
     repostCount: item.post.repostCount ?? 0,
     sharedAt: sharedAt(item),

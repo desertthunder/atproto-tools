@@ -9,20 +9,20 @@ type Tab = GraphRelationship;
 
 type RelationshipState = Record<Tab, RelationshipAccount[]>;
 
+const PAGE_SIZE = 40;
 const EMPTY_RELATIONSHIPS: RelationshipState = { followers: [], following: [], mutuals: [] };
 
-export function FollowsPanel(props: {
-  actorDid?: Did;
-  actorHandle?: string;
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
-}) {
+export function FollowsPanel(props: { actorDid?: Did; actorHandle?: string }) {
   const [tab, setTab] = createSignal<Tab>('following');
+  const [pageIndex, setPageIndex] = createSignal(0);
   const [relationships, setRelationships] = createSignal<RelationshipState>(EMPTY_RELATIONSHIPS);
   const [error, setError] = createSignal('');
   const [isRefreshing, setIsRefreshing] = createSignal(false);
 
   const accounts = () => relationships()[tab()];
+  const mutualDids = () => new Set(relationships().mutuals.map((account) => account.did));
+  const pages = () => chunk(accounts(), PAGE_SIZE);
+  const visibleAccounts = () => pages()[pageIndex()] ?? [];
   const hasAccount = () => Boolean(props.actorDid);
 
   const loadCached = async (actorDid: Did) => {
@@ -72,76 +72,39 @@ export function FollowsPanel(props: {
     void loadCached(actorDid);
   });
 
-  return (
-    <aside class="relationships-panel">
-      <Show when={props.collapsed}>
-        <CollapsedPanel
-          actorHandle={props.actorHandle}
-          disabled={!hasAccount()}
-          isRefreshing={isRefreshing()}
-          onExpand={props.onToggleCollapsed}
-          onRefresh={refresh}
-          totals={relationshipTotals(relationships())}
-        />
-      </Show>
-      <Show when={!props.collapsed}>
-        <PanelHeader
-          actorHandle={props.actorHandle}
-          disabled={!hasAccount()}
-          isRefreshing={isRefreshing()}
-          onCollapse={props.onToggleCollapsed}
-          onRefresh={refresh}
-        />
-        <TabBar tab={tab()} totals={relationshipTotals(relationships())} onTabChange={setTab} />
-        <ErrorState error={error()} />
-        <Show when={hasAccount()} fallback={<SignedOutState />}>
-          <AccountList accounts={accounts()} isRefreshing={isRefreshing()} />
-        </Show>
-        <PanelFooter count={accounts().length} isRefreshing={isRefreshing()} tab={tab()} />
-      </Show>
-    </aside>
-  );
-}
+  createEffect(() => {
+    tab();
+    relationships();
+    setPageIndex(0);
+  });
 
-function CollapsedPanel(props: {
-  actorHandle?: string;
-  disabled: boolean;
-  isRefreshing: boolean;
-  onExpand: () => void;
-  onRefresh: () => void;
-  totals: Record<Tab, number>;
-}) {
   return (
-    <div class="relationships-collapsed">
-      <button type="button" class="btn-ghost px-2!" aria-label="Expand network panel" onClick={props.onExpand}>
-        <Icon kind="chevron-left" />
-      </button>
-      <Icon kind="users" class="text-accent text-[18px]" />
-      <div class="flex flex-col items-center gap-2 text-[11px] text-ink-muted tabular-nums">
-        <span>{formatCount(props.totals.following)}</span>
-        <span>{formatCount(props.totals.followers)}</span>
-        <span>{formatCount(props.totals.mutuals)}</span>
-      </div>
-      <button
-        type="button"
-        class="btn-ghost px-2!"
-        aria-label="Refresh network"
-        disabled={props.disabled || props.isRefreshing}
-        onClick={props.onRefresh}>
-        <Icon kind={props.isRefreshing ? 'loader' : 'refresh'} class={props.isRefreshing ? 'animate-spin' : ''} />
-      </button>
-      <Show when={props.actorHandle}>{(handle) => <span class="vertical-label">@{handle()}</span>}</Show>
+    <div class="relationships-panel">
+      <PanelHeader
+        actorHandle={props.actorHandle}
+        disabled={!hasAccount()}
+        isRefreshing={isRefreshing()}
+        onRefresh={refresh}
+      />
+      <TabBar tab={tab()} totals={relationshipTotals(relationships())} onTabChange={setTab} />
+      <ErrorState error={error()} />
+      <Show when={hasAccount()} fallback={<SignedOutState />}>
+        <AccountList accounts={visibleAccounts()} isRefreshing={isRefreshing()} mutualDids={mutualDids()} />
+      </Show>
+      <PanelFooter
+        count={accounts().length}
+        isRefreshing={isRefreshing()}
+        onNext={() => setPageIndex(Math.min(pageIndex() + 1, pages().length - 1))}
+        onPrevious={() => setPageIndex(Math.max(pageIndex() - 1, 0))}
+        pageCount={pages().length}
+        pageIndex={pageIndex()}
+        tab={tab()}
+      />
     </div>
   );
 }
 
-function PanelHeader(props: {
-  actorHandle?: string;
-  disabled: boolean;
-  isRefreshing: boolean;
-  onCollapse: () => void;
-  onRefresh: () => void;
-}) {
+function PanelHeader(props: { actorHandle?: string; disabled: boolean; isRefreshing: boolean; onRefresh: () => void }) {
   return (
     <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
       <div class="min-w-0">
@@ -161,9 +124,6 @@ function PanelHeader(props: {
           onClick={props.onRefresh}>
           <Icon kind={props.isRefreshing ? 'loader' : 'refresh'} class={props.isRefreshing ? 'animate-spin' : ''} />
           Refresh
-        </button>
-        <button type="button" class="btn-ghost px-2!" aria-label="Collapse network panel" onClick={props.onCollapse}>
-          <Icon kind="chevron-right" />
         </button>
       </div>
     </div>
@@ -204,17 +164,19 @@ function TabButton(props: { active: boolean; count: number; label: string; onCli
   );
 }
 
-function AccountList(props: { accounts: RelationshipAccount[]; isRefreshing: boolean }) {
+function AccountList(props: { accounts: RelationshipAccount[]; isRefreshing: boolean; mutualDids: Set<Did> }) {
   return (
     <Show when={props.accounts.length > 0} fallback={<EmptyRelationshipState isRefreshing={props.isRefreshing} />}>
       <div class="flex-1 overflow-y-auto">
-        <For each={props.accounts}>{(account) => <AccountRow account={account} />}</For>
+        <For each={props.accounts}>
+          {(account) => <AccountRow account={account} isMutual={props.mutualDids.has(account.did)} />}
+        </For>
       </div>
     </Show>
   );
 }
 
-function AccountRow(props: { account: RelationshipAccount }) {
+function AccountRow(props: { account: RelationshipAccount; isMutual: boolean }) {
   return (
     <a
       href={props.account.profileUrl}
@@ -222,7 +184,7 @@ function AccountRow(props: { account: RelationshipAccount }) {
       rel="noopener noreferrer"
       class="grid grid-cols-[2.25rem_1fr] items-center gap-3 px-5 py-3 border-b border-border-subtle hover:bg-surface-raised transition-colors duration-120 no-underline">
       <Avatar account={props.account} />
-      <AccountInfo account={props.account} />
+      <AccountInfo account={props.account} isMutual={props.isMutual} />
     </a>
   );
 }
@@ -247,14 +209,14 @@ function InitialsAvatar(props: { handle: string }) {
   );
 }
 
-function AccountInfo(props: { account: RelationshipAccount }) {
+function AccountInfo(props: { account: RelationshipAccount; isMutual: boolean }) {
   return (
     <div class="flex flex-col gap-0.5 min-w-0">
       <div class="flex items-center gap-1.5 min-w-0">
         <span class="text-[13px] font-medium text-ink truncate">
           {props.account.displayName || props.account.handle}
         </span>
-        <Show when={props.account.relationship === 'mutuals'}>
+        <Show when={props.isMutual}>
           <MutualBadge />
         </Show>
       </div>
@@ -327,13 +289,42 @@ function EmptyRelationshipState(props: { isRefreshing: boolean }) {
   );
 }
 
-function PanelFooter(props: { count: number; isRefreshing: boolean; tab: Tab }) {
+function PanelFooter(props: {
+  count: number;
+  isRefreshing: boolean;
+  onNext: () => void;
+  onPrevious: () => void;
+  pageCount: number;
+  pageIndex: number;
+  tab: Tab;
+}) {
+  const pageCount = () => Math.max(props.pageCount, 1);
   return (
-    <div class="px-5 py-3 border-t border-border text-[12px] text-ink-muted flex items-center justify-between">
+    <div class="px-5 py-3 border-t border-border text-[12px] text-ink-muted flex items-center justify-between gap-3">
       <span class="tabular-nums">
         {props.count} {props.tab}
       </span>
-      <span>{props.isRefreshing ? 'refreshing' : 'cached'}</span>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="btn-ghost min-h-7 px-2!"
+          disabled={props.pageIndex === 0}
+          onClick={props.onPrevious}
+          aria-label="Previous page">
+          <Icon kind="chevron-left" />
+        </button>
+        <span class="tabular-nums">
+          {props.isRefreshing ? 'refreshing' : `${props.pageIndex + 1} / ${pageCount()}`}
+        </span>
+        <button
+          type="button"
+          class="btn-ghost min-h-7 px-2!"
+          disabled={props.pageIndex >= pageCount() - 1}
+          onClick={props.onNext}
+          aria-label="Next page">
+          <Icon kind="chevron-right" />
+        </button>
+      </div>
     </div>
   );
 }
@@ -347,6 +338,16 @@ const buildMutuals = (following: RelationshipAccount[], followers: RelationshipA
 
 const relationshipTotals = (state: RelationshipState) => {
   return { followers: state.followers.length, following: state.following.length, mutuals: state.mutuals.length };
+};
+
+const chunk = <Item,>(items: Item[], size: number) => {
+  const chunks: Item[][] = [];
+
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
 };
 
 const bskyPostUrl = (uri: string) => {

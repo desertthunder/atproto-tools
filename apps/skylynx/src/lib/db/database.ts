@@ -184,6 +184,14 @@ export const getLatestPausedDigestProgress = async (actor?: string) => {
     .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
 };
 
+export const getCompletedDigestProgress = async (actor?: string) => {
+  const rows = await db.digestProgress.where('status').equals('completed').toArray();
+  const normalizedActor = actor?.trim().toLowerCase();
+  return rows
+    .filter((row) => !normalizedActor || row.actor.toLowerCase() === normalizedActor)
+    .toSorted((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+};
+
 export const updateDigestProgress = async (
   id: string,
   patch: Partial<Omit<DigestProgressSnapshot, 'createdAt' | 'id'>>

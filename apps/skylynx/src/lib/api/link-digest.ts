@@ -244,6 +244,7 @@ export const aggregateDigestLinks = (posts: ExternalLinkPost[]): DigestLink[] =>
         firstSeen: post.sharedAt,
         lastSeen: post.sharedAt,
         likeCount: 0,
+        ogImageUri: post.ogImageUri,
         repostCount: 0,
         score: 0,
         shares: [],
@@ -260,6 +261,7 @@ export const aggregateDigestLinks = (posts: ExternalLinkPost[]): DigestLink[] =>
 
     if (!link.title && post.title) link.title = post.title;
     if (!link.description && post.description) link.description = post.description;
+    if (!link.ogImageUri && post.ogImageUri) link.ogImageUri = post.ogImageUri;
     if (post.sharedAt < link.firstSeen) link.firstSeen = post.sharedAt;
     if (post.sharedAt > link.lastSeen) link.lastSeen = post.sharedAt;
 

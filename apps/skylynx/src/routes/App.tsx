@@ -1,9 +1,21 @@
-import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount, type Accessor } from 'solid-js';
+import {
+  For,
+  Match,
+  Show,
+  Switch,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+  onMount,
+  type Accessor
+} from 'solid-js';
 import { FollowsPanel } from '../components/FollowsPanel';
 import { searchActorsTypeahead } from '../lib/api/bluesky';
-import { generateLinkDigest } from '../lib/api/link-digest';
+import { aggregateDigestLinks, generateLinkDigest } from '../lib/api/link-digest';
 import { useAuth } from '../lib/auth/AuthContext';
-import { getLatestPausedDigestProgress } from '../lib/db/database';
+import { getCompletedDigestProgress, getLatestPausedDigestProgress } from '../lib/db/database';
 import type { AuthenticatedAccount } from '../lib/auth/oauth';
 import type { DigestProgressSnapshot } from '../lib/db/schema';
 import type {
@@ -31,22 +43,26 @@ type UpdateOption = <Key extends keyof LinkDigestOptions>(key: Key, value: LinkD
 type DigestSectionProps = {
   error: string;
   hasResults: boolean;
+  historyVersion: number;
   isRunning: boolean;
   links: DigestLink[];
-  networkCollapsed: boolean;
   onPause: () => void;
   onResume: () => void;
-  onToggleNetwork: () => void;
+  onSidebarTabChange: (tab: SidebarTab) => void;
+  onSelectHistory: (run: DigestProgressSnapshot) => void;
   onSubmit: (event: SubmitEvent) => void;
   options: LinkDigestOptions;
   pausedRun?: DigestProgressSnapshot;
   progress: LinkDigestProgress;
   progressText: string;
+  sidebarTab: SidebarTab;
   statusEvents: StatusItem[];
   updateOption: UpdateOption;
   viewerDid?: Did;
   viewerHandle?: string;
 };
+
+type SidebarTab = 'digest' | 'network' | 'history';
 
 type StatusItem = { id: number; text: string };
 
@@ -61,8 +77,9 @@ export function LinkDigest() {
   const [progress, setProgress] = createSignal<LinkDigestProgress>({ completed: 0, phase: 'idle', total: 0 });
   const [error, setError] = createSignal('');
   const [isRunning, setIsRunning] = createSignal(false);
-  const [networkCollapsed, setNetworkCollapsed] = createSignal(false);
   const [pausedRun, setPausedRun] = createSignal<DigestProgressSnapshot>();
+  const [sidebarTab, setSidebarTab] = createSignal<SidebarTab>('digest');
+  const [historyVersion, setHistoryVersion] = createSignal(0);
   const [statusEvents, setStatusEvents] = createSignal<StatusItem[]>([]);
   let pauseRequested = false;
 
@@ -98,6 +115,7 @@ export function LinkDigest() {
         if (statusEvent.type === 'done') {
           setLinks(statusEvent.result.links);
           setPausedRun();
+          setHistoryVersion((version) => version + 1);
         }
       }
     } catch (caught) {
@@ -121,6 +139,15 @@ export function LinkDigest() {
 
   const loadPausedRun = async () => {
     setPausedRun(await getLatestPausedDigestProgress(options().actor));
+  };
+
+  const selectHistoryRun = (run: DigestProgressSnapshot) => {
+    const restoredLinks = digestLinksFromSnapshot(run);
+    setOptions(run.options);
+    setLinks(restoredLinks);
+    setError('');
+    setProgress({ completed: run.completed, phase: 'done', total: run.total });
+    setStatusEvents([{ id: 1, text: `Loaded saved digest from ${formatDigestDate(run.updatedAt)}` }]);
   };
 
   const progressText = () => {
@@ -151,7 +178,7 @@ export function LinkDigest() {
   });
 
   return (
-    <div class="px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full py-12 flex flex-col gap-14">
+    <div class="app-route">
       <AuthToolbar
         account={auth.account()}
         authError={auth.error()}
@@ -164,19 +191,21 @@ export function LinkDigest() {
         hasResults={hasResults()}
         isRunning={isRunning()}
         links={links()}
-        networkCollapsed={networkCollapsed()}
         onPause={pauseDigest}
         onResume={resumeDigest}
-        onToggleNetwork={() => setNetworkCollapsed(!networkCollapsed())}
+        onSelectHistory={selectHistoryRun}
+        onSidebarTabChange={setSidebarTab}
         onSubmit={runDigest}
         options={options()}
         pausedRun={pausedRun()}
         progress={progress()}
         progressText={progressText()}
+        sidebarTab={sidebarTab()}
         statusEvents={statusEvents()}
         updateOption={updateOption}
         viewerDid={auth.account()?.did}
         viewerHandle={auth.account()?.handle}
+        historyVersion={historyVersion()}
       />
     </div>
   );
@@ -235,9 +264,33 @@ function AuthToolbar(props: {
 
 function DigestSection(props: DigestSectionProps) {
   return (
-    <section class="flex flex-col gap-6">
-      <SectionTitle />
-      <div class="digest-grid" classList={{ 'digest-grid--network-collapsed': props.networkCollapsed }}>
+    <section class="app-workspace">
+      <SidebarTitle />
+      <aside class="app-sidebar">
+        <SidebarTabs active={props.sidebarTab} onChange={props.onSidebarTabChange} />
+        <div class="min-h-0 flex-1 overflow-hidden">
+          <SidebarPanel {...props} />
+        </div>
+      </aside>
+      <ResultsPanel {...props} />
+    </section>
+  );
+}
+
+function SidebarPanel(props: DigestSectionProps) {
+  return (
+    <Switch>
+      <Match when={props.sidebarTab === 'network'}>
+        <FollowsPanel actorDid={props.viewerDid} actorHandle={props.viewerHandle} />
+      </Match>
+      <Match when={props.sidebarTab === 'history'}>
+        <DigestHistory
+          actor={props.viewerHandle}
+          refreshKey={props.historyVersion}
+          onSelectHistory={props.onSelectHistory}
+        />
+      </Match>
+      <Match when={props.sidebarTab === 'digest'}>
         <DigestControls
           actorHandle={props.viewerHandle}
           isRunning={props.isRunning}
@@ -249,27 +302,130 @@ function DigestSection(props: DigestSectionProps) {
           signedIn={Boolean(props.viewerDid)}
           updateOption={props.updateOption}
         />
-        <ResultsPanel {...props} />
-        <FollowsPanel
-          actorDid={props.viewerDid}
-          actorHandle={props.viewerHandle}
-          collapsed={props.networkCollapsed}
-          onToggleCollapsed={props.onToggleNetwork}
-        />
-      </div>
-    </section>
+      </Match>
+    </Switch>
   );
 }
 
-function SectionTitle() {
+function SidebarTitle() {
   return (
-    <div class="flex items-center gap-2.5">
+    <div class="app-workspace-title">
       <span class="flex items-center text-accent">
         <i class="i-tabler-bolt"></i>
       </span>
       <h2 class="text-[18px] font-semibold tracking-[-0.01em] text-ink" style={{ 'font-family': 'var(--font-body)' }}>
         Build a digest
       </h2>
+    </div>
+  );
+}
+
+function SidebarTabs(props: { active: SidebarTab; onChange: (tab: SidebarTab) => void }) {
+  return (
+    <div class="sidebar-tabs">
+      <SidebarTabButton
+        active={props.active === 'digest'}
+        icon="bolt"
+        label="Digest"
+        onClick={() => props.onChange('digest')}
+      />
+      <SidebarTabButton
+        active={props.active === 'network'}
+        icon="users"
+        label="Network"
+        onClick={() => props.onChange('network')}
+      />
+      <SidebarTabButton
+        active={props.active === 'history'}
+        icon="database"
+        label="History"
+        onClick={() => props.onChange('history')}
+      />
+    </div>
+  );
+}
+
+function SidebarTabButton(props: { active: boolean; icon: IconKind; label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      class="sidebar-tab"
+      classList={{ 'sidebar-tab--active': props.active }}
+      onClick={props.onClick}>
+      <Icon kind={props.icon} />
+      {props.label}
+    </button>
+  );
+}
+
+function DigestHistory(props: {
+  actor?: string;
+  onSelectHistory: (run: DigestProgressSnapshot) => void;
+  refreshKey: number;
+}) {
+  const [runs, setRuns] = createSignal<DigestProgressSnapshot[]>([]);
+  const [isLoading, setIsLoading] = createSignal(true);
+
+  const loadRuns = async () => {
+    setIsLoading(true);
+    try {
+      setRuns(await getCompletedDigestProgress(props.actor));
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  createEffect(
+    on([() => props.actor, () => props.refreshKey], () => {
+      void loadRuns();
+    })
+  );
+
+  return (
+    <div class="flex h-full min-h-0 flex-col">
+      <div class="border-b border-border px-5 py-4">
+        <div class="flex items-center gap-2 text-[14px] font-semibold text-ink">
+          <Icon kind="database" class="text-accent" />
+          Previous digests
+        </div>
+        <p class="text-[12px] text-ink-muted">Saved locally from completed runs.</p>
+      </div>
+      <Show when={!isLoading()} fallback={<HistoryEmpty text="Loading digests..." />}>
+        <Show when={runs().length > 0} fallback={<HistoryEmpty text="No completed digests yet." />}>
+          <ol class="min-h-0 flex-1 overflow-y-auto p-2">
+            <For each={runs()}>{(run) => <HistoryRun run={run} onSelect={props.onSelectHistory} />}</For>
+          </ol>
+        </Show>
+      </Show>
+    </div>
+  );
+}
+
+function HistoryRun(props: { onSelect: (run: DigestProgressSnapshot) => void; run: DigestProgressSnapshot }) {
+  const linkCount = () => digestLinksFromSnapshot(props.run).length;
+
+  return (
+    <li class="list-none">
+      <button
+        type="button"
+        class="w-full rounded-lg border-0 bg-transparent px-3 py-3 text-left hover:bg-surface-raised transition-colors duration-120"
+        onClick={() => props.onSelect(props.run)}>
+        <span class="block text-[13px] font-semibold text-ink">{formatDigestDate(props.run.updatedAt)}</span>
+        <span class="mt-1 block text-[12px] text-ink-muted">
+          @{props.run.actor} · {formatCount(linkCount())} links · {formatCount(props.run.postCount)} posts
+        </span>
+        <span class="mt-1 block text-[11px] text-ink-faint">
+          {formatWindow(props.run.options.since, props.run.options.until)}
+        </span>
+      </button>
+    </li>
+  );
+}
+
+function HistoryEmpty(props: { text: string }) {
+  return (
+    <div class="flex flex-1 items-center justify-center px-5 py-10 text-center text-[13px] text-ink-muted">
+      {props.text}
     </div>
   );
 }
@@ -286,7 +442,7 @@ function DigestControls(props: {
   updateOption: UpdateOption;
 }) {
   return (
-    <div class="bg-surface border border-border rounded-xl p-6 self-start flex flex-col gap-5">
+    <div class="flex h-full min-h-0 flex-col gap-5 overflow-y-auto p-5">
       <form class="grid gap-3.5 grid-cols-2" onSubmit={props.onSubmit}>
         <DigestIdentity signedIn={props.signedIn} actorHandle={props.actorHandle} />
         <DatePickerField
@@ -427,7 +583,7 @@ function DigestActionButtons(props: {
 
 function ResultsPanel(props: DigestSectionProps) {
   return (
-    <div class="bg-surface border border-border rounded-xl overflow-hidden flex flex-col min-h-120">
+    <div class="app-results">
       <StatusBar {...props} />
       <ErrorState error={props.error} />
       <EmptyState isEmpty={!props.hasResults && !props.isRunning && !props.error} signedIn={Boolean(props.viewerDid)} />
@@ -488,7 +644,7 @@ function ResultCount(props: { count: number }) {
 
 function LinkResults(props: { links: DigestLink[] }) {
   return (
-    <div class="flex flex-col divide-y divide-border-subtle overflow-y-auto">
+    <div class="flex min-h-0 flex-1 flex-col divide-y divide-border-subtle overflow-y-auto">
       <For each={props.links}>{(link, index) => <LinkCard index={index()} link={link} />}</For>
     </div>
   );
@@ -534,12 +690,35 @@ function LinkRank(props: { index: number }) {
 
 function LinkSummary(props: { link: DigestLink }) {
   return (
-    <div class="flex flex-col gap-1.5 min-w-0">
-      <LinkTitle link={props.link} />
-      <LinkDescription description={props.link.description} />
-      <LinkMetrics link={props.link} />
-      <SharerList sharers={props.link.sharers} />
+    <div class="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] gap-4 max-[760px]:grid-cols-1">
+      <div class="flex min-w-0 flex-col gap-1.5">
+        <LinkTitle link={props.link} />
+        <LinkDescription description={props.link.description} />
+        <LinkMetrics link={props.link} />
+        <SharerList sharers={props.link.sharers} />
+      </div>
+      <LinkOgImage link={props.link} />
     </div>
+  );
+}
+
+function LinkOgImage(props: { link: DigestLink }) {
+  const [failed, setFailed] = createSignal(false);
+  const imageUri = () => (failed() ? undefined : props.link.ogImageUri);
+
+  return (
+    <Show when={imageUri()}>
+      {(uri) => (
+        <a
+          href={props.link.uri}
+          target="_blank"
+          rel="noopener noreferrer"
+          class="block size-24 overflow-hidden rounded-lg border border-border-subtle bg-surface-raised max-[760px]:hidden"
+          aria-label="Open link">
+          <img src={uri()} alt="" loading="lazy" class="h-full w-full object-cover" onError={() => setFailed(true)} />
+        </a>
+      )}
+    </Show>
   );
 }
 
@@ -600,7 +779,7 @@ function SharerList(props: { sharers: string[] }) {
 
 function Running() {
   return (
-    <div class="flex flex-col divide-y divide-border-subtle">
+    <div class="min-h-0 flex-1 overflow-y-auto flex flex-col divide-y divide-border-subtle">
       <For each={Array.from({ length: 5 })}>
         {() => (
           <div class="px-5 py-4.5 flex flex-col gap-2.5">
@@ -965,9 +1144,56 @@ const normalizedOptions = (options: LinkDigestOptions): LinkDigestOptions => ({
   minShares: clampInteger(options.minShares, 1, 100_000)
 });
 
+const digestLinksFromSnapshot = (run: DigestProgressSnapshot) => {
+  return aggregateDigestLinks(run.posts)
+    .filter((link) => link.score >= run.options.minScore)
+    .filter((link) => link.sharers.length >= run.options.minShares)
+    .toSorted(compareDigestLinks)
+    .slice(0, run.options.limit);
+};
+
+const compareDigestLinks = (left: DigestLink, right: DigestLink) => {
+  const shareOrder = right.sharers.length - left.sharers.length;
+  if (shareOrder !== 0) return shareOrder;
+
+  const scoreOrder = right.score - left.score;
+  if (scoreOrder !== 0) return scoreOrder;
+
+  const titleOrder = left.title.localeCompare(right.title);
+  if (titleOrder !== 0) return titleOrder;
+
+  return left.uri.localeCompare(right.uri);
+};
+
 const digestTime = (value: string) => value.slice(11, 16) || value;
 const clampInteger = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, Math.trunc(value || min)));
+
+const formatCount = (count: number) => {
+  if (count < 1000) return String(count);
+  return new Intl.NumberFormat(undefined, { maximumFractionDigits: 1, notation: 'compact' }).format(count);
+};
+
+const formatDigestDate = (iso: string) => {
+  return new Intl.DateTimeFormat(undefined, {
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  }).format(new Date(iso));
+};
+
+const formatWindow = (since?: string, until?: string) => {
+  if (since && until) return `${shortDate(since)} to ${shortDate(until)}`;
+  if (since) return `Since ${shortDate(since)}`;
+  if (until) return `Until ${shortDate(until)}`;
+  return 'All scanned posts';
+};
+
+const shortDate = (iso: string) => {
+  return new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).format(new Date(iso));
+};
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 
