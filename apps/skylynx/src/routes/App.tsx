@@ -1,17 +1,10 @@
-import {
-  For,
-  Match,
-  Show,
-  Switch,
-  createEffect,
-  createMemo,
-  createSignal,
-  on,
-  onCleanup,
-  onMount,
-  type Accessor
-} from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, on, onCleanup, onMount, type Accessor } from 'solid-js';
+import { AlertMessage } from '../components/AlertMessage';
+import { CenteredState } from '../components/CenteredState';
 import { FollowsPanel } from '../components/FollowsPanel';
+import { IconHeading } from '../components/IconHeading';
+import { PanelHeader } from '../components/PanelHeader';
+import { Sidebar, type SidebarTab } from '../components/Sidebar';
 import { searchActorsTypeahead } from '../lib/api/bluesky';
 import { aggregateDigestLinks, generateLinkDigest } from '../lib/api/link-digest';
 import { useAuth } from '../lib/auth/AuthContext';
@@ -40,31 +33,45 @@ const DEFAULT_OPTIONS: LinkDigestOptions = {
 
 type UpdateOption = <Key extends keyof LinkDigestOptions>(key: Key, value: LinkDigestOptions[Key]) => void;
 
-type DigestSectionProps = {
-  error: string;
-  hasResults: boolean;
-  historyVersion: number;
+type DigestSectionProps = { results: ResultsPanelProps; sidebar: DigestSidebarProps; tabs: SidebarTabsProps };
+
+type StatusItem = { id: number; text: string };
+
+type SidebarTabsProps = { active: SidebarTab; onChange: (tab: SidebarTab) => void };
+
+type DigestSidebarProps = { controls: DigestControlsProps; history: DigestHistoryProps; network: NetworkPanelProps };
+
+type NetworkPanelProps = { actorDid?: Did; actorHandle?: string };
+
+type DigestHistoryProps = {
+  actor?: string;
+  onSelectHistory: (run: DigestProgressSnapshot) => void;
+  refreshKey: number;
+};
+
+type DigestControlsProps = {
+  actorHandle?: string;
   isRunning: boolean;
-  links: DigestLink[];
   onPause: () => void;
   onResume: () => void;
-  onSidebarTabChange: (tab: SidebarTab) => void;
-  onSelectHistory: (run: DigestProgressSnapshot) => void;
   onSubmit: (event: SubmitEvent) => void;
   options: LinkDigestOptions;
   pausedRun?: DigestProgressSnapshot;
-  progress: LinkDigestProgress;
-  progressText: string;
-  sidebarTab: SidebarTab;
-  statusEvents: StatusItem[];
+  signedIn: boolean;
   updateOption: UpdateOption;
-  viewerDid?: Did;
-  viewerHandle?: string;
 };
 
-type SidebarTab = 'digest' | 'network' | 'history';
+type ResultsPanelProps = {
+  error: string;
+  isRunning: boolean;
+  links: DigestLink[];
+  progress: LinkDigestProgress;
+  progressText: string;
+  signedIn: boolean;
+  statusEvents: StatusItem[];
+};
 
-type StatusItem = { id: number; text: string };
+type StatusBarProps = { isRunning: boolean; linksCount: number; progress: LinkDigestProgress; progressText: string };
 
 type DatePickerValue = { date: string; hour: number; minute: number };
 
@@ -160,7 +167,7 @@ export function LinkDigest() {
     return `Scanning feeds ${p.completed} / ${p.total}`;
   };
 
-  const hasResults = () => links().length > 0;
+  const account = () => auth.account();
   const updateOption: UpdateOption = (key, value) => setOptions({ ...options(), [key]: value });
 
   createEffect(() => {
@@ -187,25 +194,31 @@ export function LinkDigest() {
         onSignOut={auth.signOut}
       />
       <DigestSection
-        error={error()}
-        hasResults={hasResults()}
-        isRunning={isRunning()}
-        links={links()}
-        onPause={pauseDigest}
-        onResume={resumeDigest}
-        onSelectHistory={selectHistoryRun}
-        onSidebarTabChange={setSidebarTab}
-        onSubmit={runDigest}
-        options={options()}
-        pausedRun={pausedRun()}
-        progress={progress()}
-        progressText={progressText()}
-        sidebarTab={sidebarTab()}
-        statusEvents={statusEvents()}
-        updateOption={updateOption}
-        viewerDid={auth.account()?.did}
-        viewerHandle={auth.account()?.handle}
-        historyVersion={historyVersion()}
+        tabs={{ active: sidebarTab(), onChange: setSidebarTab }}
+        sidebar={{
+          controls: {
+            actorHandle: account()?.handle,
+            isRunning: isRunning(),
+            onPause: pauseDigest,
+            onResume: resumeDigest,
+            onSubmit: runDigest,
+            options: options(),
+            pausedRun: pausedRun(),
+            signedIn: Boolean(account()?.did),
+            updateOption
+          },
+          history: { actor: account()?.handle, onSelectHistory: selectHistoryRun, refreshKey: historyVersion() },
+          network: { actorDid: account()?.did, actorHandle: account()?.handle }
+        }}
+        results={{
+          error: error(),
+          isRunning: isRunning(),
+          links: links(),
+          progress: progress(),
+          progressText: progressText(),
+          signedIn: Boolean(account()?.did),
+          statusEvents: statusEvents()
+        }}
       />
     </div>
   );
@@ -229,10 +242,9 @@ function AuthToolbar(props: {
   return (
     <section class="auth-strip">
       <div class="min-w-0">
-        <div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
-          <Icon kind={props.account ? 'user-check' : 'lock'} class="text-accent" />
-          <span>{props.account ? `Signed in as @${props.account.handle}` : 'Bluesky sign in'}</span>
-        </div>
+        <IconHeading icon={props.account ? 'user-check' : 'lock'}>
+          {props.account ? `Signed in as @${props.account.handle}` : 'Bluesky sign in'}
+        </IconHeading>
         <p class="text-[12px] text-ink-muted">
           {props.account
             ? 'Network cache and digest defaults are tied to this account.'
@@ -265,104 +277,47 @@ function AuthToolbar(props: {
 function DigestSection(props: DigestSectionProps) {
   return (
     <section class="app-workspace">
-      <SidebarTitle />
-      <aside class="app-sidebar">
-        <SidebarTabs active={props.sidebarTab} onChange={props.onSidebarTabChange} />
-        <div class="min-h-0 flex-1 overflow-hidden">
-          <SidebarPanel {...props} />
-        </div>
-      </aside>
-      <ResultsPanel {...props} />
+      <Sidebar
+        active={props.tabs.active}
+        onChange={props.tabs.onChange}
+        digest={() => (
+          <DigestControls
+            actorHandle={props.sidebar.controls.actorHandle}
+            isRunning={props.sidebar.controls.isRunning}
+            onPause={props.sidebar.controls.onPause}
+            onResume={props.sidebar.controls.onResume}
+            onSubmit={props.sidebar.controls.onSubmit}
+            options={props.sidebar.controls.options}
+            pausedRun={props.sidebar.controls.pausedRun}
+            signedIn={props.sidebar.controls.signedIn}
+            updateOption={props.sidebar.controls.updateOption}
+          />
+        )}
+        history={() => (
+          <DigestHistory
+            actor={props.sidebar.history.actor}
+            refreshKey={props.sidebar.history.refreshKey}
+            onSelectHistory={props.sidebar.history.onSelectHistory}
+          />
+        )}
+        network={() => (
+          <FollowsPanel actorDid={props.sidebar.network.actorDid} actorHandle={props.sidebar.network.actorHandle} />
+        )}
+      />
+      <ResultsPanel
+        error={props.results.error}
+        isRunning={props.results.isRunning}
+        links={props.results.links}
+        progress={props.results.progress}
+        progressText={props.results.progressText}
+        signedIn={props.results.signedIn}
+        statusEvents={props.results.statusEvents}
+      />
     </section>
   );
 }
 
-function SidebarPanel(props: DigestSectionProps) {
-  return (
-    <Switch>
-      <Match when={props.sidebarTab === 'network'}>
-        <FollowsPanel actorDid={props.viewerDid} actorHandle={props.viewerHandle} />
-      </Match>
-      <Match when={props.sidebarTab === 'history'}>
-        <DigestHistory
-          actor={props.viewerHandle}
-          refreshKey={props.historyVersion}
-          onSelectHistory={props.onSelectHistory}
-        />
-      </Match>
-      <Match when={props.sidebarTab === 'digest'}>
-        <DigestControls
-          actorHandle={props.viewerHandle}
-          isRunning={props.isRunning}
-          onPause={props.onPause}
-          onResume={props.onResume}
-          onSubmit={props.onSubmit}
-          options={props.options}
-          pausedRun={props.pausedRun}
-          signedIn={Boolean(props.viewerDid)}
-          updateOption={props.updateOption}
-        />
-      </Match>
-    </Switch>
-  );
-}
-
-function SidebarTitle() {
-  return (
-    <div class="app-workspace-title">
-      <span class="flex items-center text-accent">
-        <i class="i-tabler-bolt"></i>
-      </span>
-      <h2 class="text-[18px] font-semibold tracking-[-0.01em] text-ink" style={{ 'font-family': 'var(--font-body)' }}>
-        Build a digest
-      </h2>
-    </div>
-  );
-}
-
-function SidebarTabs(props: { active: SidebarTab; onChange: (tab: SidebarTab) => void }) {
-  return (
-    <div class="sidebar-tabs">
-      <SidebarTabButton
-        active={props.active === 'digest'}
-        icon="bolt"
-        label="Digest"
-        onClick={() => props.onChange('digest')}
-      />
-      <SidebarTabButton
-        active={props.active === 'network'}
-        icon="users"
-        label="Network"
-        onClick={() => props.onChange('network')}
-      />
-      <SidebarTabButton
-        active={props.active === 'history'}
-        icon="database"
-        label="History"
-        onClick={() => props.onChange('history')}
-      />
-    </div>
-  );
-}
-
-function SidebarTabButton(props: { active: boolean; icon: IconKind; label: string; onClick: () => void }) {
-  return (
-    <button
-      type="button"
-      class="sidebar-tab"
-      classList={{ 'sidebar-tab--active': props.active }}
-      onClick={props.onClick}>
-      <Icon kind={props.icon} />
-      {props.label}
-    </button>
-  );
-}
-
-function DigestHistory(props: {
-  actor?: string;
-  onSelectHistory: (run: DigestProgressSnapshot) => void;
-  refreshKey: number;
-}) {
+function DigestHistory(props: DigestHistoryProps) {
   const [runs, setRuns] = createSignal<DigestProgressSnapshot[]>([]);
   const [isLoading, setIsLoading] = createSignal(true);
 
@@ -383,13 +338,12 @@ function DigestHistory(props: {
 
   return (
     <div class="flex h-full min-h-0 flex-col">
-      <div class="border-b border-border px-5 py-4">
-        <div class="flex items-center gap-2 text-[14px] font-semibold text-ink">
-          <Icon kind="database" class="text-accent" />
-          Previous digests
-        </div>
-        <p class="text-[12px] text-ink-muted">Saved locally from completed runs.</p>
-      </div>
+      <PanelHeader
+        icon="database"
+        title="Previous digests"
+        subtitle="Saved locally from completed runs."
+        titleClass="text-[14px]"
+      />
       <Show when={!isLoading()} fallback={<HistoryEmpty text="Loading digests..." />}>
         <Show when={runs().length > 0} fallback={<HistoryEmpty text="No completed digests yet." />}>
           <ol class="min-h-0 flex-1 overflow-y-auto p-2">
@@ -423,24 +377,10 @@ function HistoryRun(props: { onSelect: (run: DigestProgressSnapshot) => void; ru
 }
 
 function HistoryEmpty(props: { text: string }) {
-  return (
-    <div class="flex flex-1 items-center justify-center px-5 py-10 text-center text-[13px] text-ink-muted">
-      {props.text}
-    </div>
-  );
+  return <CenteredState class="text-[13px] text-ink-muted">{props.text}</CenteredState>;
 }
 
-function DigestControls(props: {
-  actorHandle?: string;
-  isRunning: boolean;
-  onPause: () => void;
-  onResume: () => void;
-  onSubmit: (event: SubmitEvent) => void;
-  options: LinkDigestOptions;
-  pausedRun?: DigestProgressSnapshot;
-  signedIn: boolean;
-  updateOption: UpdateOption;
-}) {
+function DigestControls(props: DigestControlsProps) {
   return (
     <div class="flex h-full min-h-0 flex-col gap-5 overflow-y-auto p-5">
       <form class="grid gap-3.5 grid-cols-2" onSubmit={props.onSubmit}>
@@ -505,10 +445,9 @@ function DigestControls(props: {
 function DigestIdentity(props: { actorHandle?: string; signedIn: boolean }) {
   return (
     <div class="col-span-full rounded-lg border border-border-subtle bg-surface-raised px-3 py-2.5">
-      <div class="flex items-center gap-2 text-[13px] font-semibold text-ink">
-        <Icon kind={props.signedIn ? 'user-check' : 'user-search'} class="text-accent" />
-        <span>{props.signedIn ? `Digesting @${props.actorHandle}` : 'Preview mode'}</span>
-      </div>
+      <IconHeading icon={props.signedIn ? 'user-check' : 'user-search'}>
+        {props.signedIn ? `Digesting @${props.actorHandle}` : 'Preview mode'}
+      </IconHeading>
       <p class="text-[12px] text-ink-muted">
         {props.signedIn ? 'Skylynx will scan links from your following graph.' : 'Sign in to enable digest controls.'}
       </p>
@@ -581,32 +520,41 @@ function DigestActionButtons(props: {
   );
 }
 
-function ResultsPanel(props: DigestSectionProps) {
+function ResultsPanel(props: ResultsPanelProps) {
+  const hasResults = () => props.links.length > 0;
+
   return (
     <div class="app-results">
-      <StatusBar {...props} />
+      <StatusBar
+        isRunning={props.isRunning}
+        linksCount={props.links.length}
+        progress={props.progress}
+        progressText={props.progressText}
+      />
       <ErrorState error={props.error} />
-      <EmptyState isEmpty={!props.hasResults && !props.isRunning && !props.error} signedIn={Boolean(props.viewerDid)} />
+      <EmptyState isEmpty={!hasResults() && !props.isRunning && !props.error} signedIn={props.signedIn} />
       <StatusFeed events={props.statusEvents} />
-      <Show when={props.isRunning && !props.hasResults}>
+      <Show when={props.isRunning && !hasResults()}>
         <Running />
       </Show>
-      <Show when={props.hasResults}>
+      <Show when={hasResults()}>
         <LinkResults links={props.links} />
       </Show>
     </div>
   );
 }
 
-function StatusBar(props: DigestSectionProps) {
+function StatusBar(props: StatusBarProps) {
+  const hasResults = () => props.linksCount > 0;
+
   return (
     <div class="flex items-center justify-between gap-4 px-5 py-3.5 border-b border-border-subtle bg-surface-raised">
-      <StatusLabel hasResults={props.hasResults} isRunning={props.isRunning} text={props.progressText} />
+      <StatusLabel hasResults={hasResults()} isRunning={props.isRunning} text={props.progressText} />
       <Show when={props.isRunning}>
         <progress max={props.progress.total || 1} value={props.progress.completed} />
       </Show>
-      <Show when={props.hasResults && !props.isRunning}>
-        <ResultCount count={props.links.length} />
+      <Show when={hasResults() && !props.isRunning}>
+        <ResultCount count={props.linksCount} />
       </Show>
     </div>
   );
@@ -1107,29 +1055,18 @@ function ActorSuggestionText(props: { actor: ActorSuggestion }) {
 }
 
 function ErrorState(props: { error?: string }) {
-  const error = () => props.error;
-  return (
-    <Show when={error()}>
-      {(e) => (
-        <div class="flex items-start gap-2.5 px-5 py-4 border-b border-border-subtle">
-          <Icon kind="warning" class="text-danger mt-1" />
-          <p class="text-danger text-[14px]">{e()}</p>
-        </div>
-      )}
-    </Show>
-  );
+  return <AlertMessage error={props.error} class="py-4 text-[14px]" />;
 }
 
 function EmptyState(props: { isEmpty: boolean; signedIn: boolean }) {
   const isEmpty = () => props.isEmpty;
   return (
     <Show when={isEmpty()}>
-      <div class="flex-1 flex flex-col items-center justify-center gap-3 px-8 py-12 text-center">
-        <Icon kind="link" class="text-ink-faint text-[40px]" />
+      <CenteredState icon="link" iconClass="text-[40px]" class="gap-3 px-8 py-12">
         <p class="text-ink-muted text-[14px] max-w-65">
           {props.signedIn ? 'Build a digest to see shared links.' : 'Sign in to preview your network link digest.'}
         </p>
-      </div>
+      </CenteredState>
     </Show>
   );
 }

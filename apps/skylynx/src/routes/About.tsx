@@ -1,6 +1,7 @@
 import { For } from 'solid-js';
 import { A } from '@solidjs/router';
 import { Icon, type IconKind } from '../components/Icon';
+import { SectionLabel } from '../components/SectionLabel';
 
 export function About() {
   return (
@@ -139,10 +140,6 @@ function CallToAction() {
       </A>
     </section>
   );
-}
-
-function SectionLabel(props: { children: string }) {
-  return <h2 class="text-[13px] font-semibold tracking-[0.08em] uppercase text-ink-muted">{props.children}</h2>;
 }
 
 const HOW_IT_WORKS: { icon: IconKind; title: string; body: string }[] = [

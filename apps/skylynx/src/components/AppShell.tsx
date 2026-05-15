@@ -15,7 +15,7 @@ export function AppShell(props: ParentProps) {
 function AppHeader() {
   return (
     <header class="border-b border-border-subtle">
-      <div class="flex items-center justify-between h-13 px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full">
+      <div class="px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full flex items-center justify-between h-13">
         <HeaderLogo />
         <HeaderNav />
       </div>
@@ -56,7 +56,7 @@ function HeaderNav() {
 function AppFooter() {
   return (
     <footer class="border-t border-border-subtle">
-      <div class="flex items-center justify-between px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full py-4 text-[12px] text-ink-muted">
+      <div class="px-[clamp(20px,4vw,56px)] max-w-350 mx-auto w-full flex items-center justify-between h-13 py-4 text-[12px] text-ink-muted">
         <span>Skylynx — AT Protocol link aggregator</span>
         <span>Data sourced from the Bluesky public API</span>
       </div>

@@ -1,7 +1,10 @@
 import { createEffect, createSignal, For, Show } from 'solid-js';
 import { fetchAllFollowers, fetchAllFollowingAccounts } from '../lib/api/bluesky';
 import { cacheRelationships, getCachedRelationships } from '../lib/db/database';
+import { AlertMessage } from './AlertMessage';
+import { CenteredState } from './CenteredState';
 import { Icon } from './Icon';
+import { PanelHeader } from './PanelHeader';
 
 import type { Did, GraphRelationship, RelationshipAccount } from '../lib/types';
 
@@ -81,11 +84,16 @@ export function FollowsPanel(props: { actorDid?: Did; actorHandle?: string }) {
   return (
     <div class="relationships-panel">
       <PanelHeader
-        actorHandle={props.actorHandle}
-        disabled={!hasAccount()}
-        isRefreshing={isRefreshing()}
-        onRefresh={refresh}
-      />
+        icon="users"
+        iconClass="text-[16px]"
+        subtitle={props.actorHandle ? `@${props.actorHandle}` : undefined}
+        title="Network"
+        titleClass="text-[14px] tracking-[-0.01em]">
+        <button type="button" class="btn-ghost px-2!" disabled={!hasAccount() || isRefreshing()} onClick={refresh}>
+          <Icon kind={isRefreshing() ? 'loader' : 'refresh'} class={isRefreshing() ? 'animate-spin' : ''} />
+          Refresh
+        </button>
+      </PanelHeader>
       <TabBar tab={tab()} totals={relationshipTotals(relationships())} onTabChange={setTab} />
       <ErrorState error={error()} />
       <Show when={hasAccount()} fallback={<SignedOutState />}>
@@ -100,32 +108,6 @@ export function FollowsPanel(props: { actorDid?: Did; actorHandle?: string }) {
         pageIndex={pageIndex()}
         tab={tab()}
       />
-    </div>
-  );
-}
-
-function PanelHeader(props: { actorHandle?: string; disabled: boolean; isRefreshing: boolean; onRefresh: () => void }) {
-  return (
-    <div class="flex items-center justify-between gap-3 px-5 py-4 border-b border-border">
-      <div class="min-w-0">
-        <div class="flex items-center gap-2">
-          <Icon kind="users" class="text-accent text-[16px]" />
-          <span class="text-[14px] font-semibold text-ink tracking-[-0.01em]">Network</span>
-        </div>
-        <Show when={props.actorHandle}>
-          {(handle) => <span class="block truncate text-[12px] text-ink-muted">@{handle()}</span>}
-        </Show>
-      </div>
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="btn-ghost px-2!"
-          disabled={props.disabled || props.isRefreshing}
-          onClick={props.onRefresh}>
-          <Icon kind={props.isRefreshing ? 'loader' : 'refresh'} class={props.isRefreshing ? 'animate-spin' : ''} />
-          Refresh
-        </button>
-      </div>
     </div>
   );
 }
@@ -257,22 +239,14 @@ function MutualBadge() {
 }
 
 function ErrorState(props: { error: string }) {
-  return (
-    <Show when={props.error}>
-      <div class="flex items-start gap-2.5 px-5 py-3 border-b border-border-subtle text-danger text-[12px]">
-        <Icon kind="warning" class="mt-0.5" />
-        <span>{props.error}</span>
-      </div>
-    </Show>
-  );
+  return <AlertMessage error={props.error} />;
 }
 
 function SignedOutState() {
   return (
-    <div class="flex-1 flex flex-col items-center justify-center gap-2 px-5 py-10 text-center">
-      <Icon kind="lock" class="text-ink-faint text-[32px]" />
+    <CenteredState icon="lock">
       <p class="text-[13px] text-ink-muted">Sign in to load your followers, following, and mutuals.</p>
-    </div>
+    </CenteredState>
   );
 }
 
@@ -282,11 +256,7 @@ function EmptyRelationshipState(props: { isRefreshing: boolean }) {
     return 'No cached accounts yet.';
   };
 
-  return (
-    <div class="flex-1 flex items-center justify-center px-5 py-10 text-center text-[13px] text-ink-muted">
-      {text()}
-    </div>
-  );
+  return <CenteredState class="text-[13px] text-ink-muted">{text()}</CenteredState>;
 }
 
 function PanelFooter(props: {
